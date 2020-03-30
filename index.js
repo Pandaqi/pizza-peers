@@ -1,5 +1,5 @@
 process.title = 'peer-to-peer';
-var webSocketsServerPort = 1337;
+var webSocketsServerPort = process.env.PORT || 8888;
 
 var WebSocketServer = require('websocket').server;
 var http = require('http');
@@ -20,12 +20,14 @@ server.listen(webSocketsServerPort, function() {
 var WebSocketServer = require('websocket').server;
 var express         = require('express');
 var app             = express();
-var server          = app.listen(8888);
+var server          = app.listen(webSocketsServerPort, function() {
+	console.log((new Date()) + " Server is listening on port " + webSocketsServerPort);
+});
 
 // create the web socket server (using the HTTP server as a basis)
 var wsServer        = new WebSocketServer({ httpServer : server });
 
-console.log((new Date()) + " Server is listening on port ??");
+
 
 // this will make Express serve your static files (from the folder /public)
 app.use(express.static(__dirname + '/public'));

@@ -2,6 +2,9 @@
 // https://medium.com/@martin.sikora/node-js-websocket-simple-chat-tutorial-2def3a841b61
 // https://www.tutorialspoint.com/webrtc/webrtc_signaling.htm
 
+// HOW TO MAKE SERVER WEBSOCKET + SERVE STATIC FILES
+// https://stackoverflow.com/questions/20919947/serve-websocket-and-http-server-at-same-address-on-node-js
+
 $(function () {
   // global peer (will be set to its actual value, once players have created/joined a game)
   var peers = [];

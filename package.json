@@ -5,8 +5,8 @@
   "main": "index.js",
   "scripts": {
     "build": "webpack --progress --colors",
-    "dev": "node server/index.js",
-    "start": "node server/index.js"
+    "dev": "node index.js",
+    "start": "node index.js"
   },
   "repository": {
     "type": "git",

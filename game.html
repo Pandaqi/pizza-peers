@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>WebSockets test</title>
+    <style>
+    main {
+      max-width: 550px;
+      margin:auto;
+    }
+
+    button, input {
+      width: 100%;
+      font-size: 16pt;
+    }
+  </style>
+  </head>
+  <body>
+    <!-- ALTERNATIVE LIBRARY FOR WEBSOCKETS: https://github.com/websockets/ws -->
+    <main>
+      <div id="status"></div>
+
+      <div>
+        <button id="createGameBtn">CREATE GAME</button>
+      </div>
+
+      <hr />
+
+      <div>
+        <input type="text" id="roomInput" />
+        <button id="joinGameBtn">JOIN GAME</button>
+      </div>
+
+      <div id="messageStream">
+
+      </div>
+
+      <div id="messageForm" style="display:none;">
+        <textarea id="messageContent" style="width:100%;"></textarea>
+        <button id="sendMessageBtn">Send Message</button>
+      </div>
+    </main>
+
+    <!-- JQuery include - can I remove this at some point? -->
+    <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
+    
+    <!-- Peer to Peer support -->
+    <script src="simplepeer.min.js"></script>
+
+    <!-- Actual code (for connecting with websockets, starting/joining game, and switching to peer-to-peer) -->
+    <script src="frontend.js"></script>
+  </body>
+</html>

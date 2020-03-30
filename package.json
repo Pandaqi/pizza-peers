@@ -1,0 +1,32 @@
+{
+  "name": "peers-in-the-post-office",
+  "version": "0.1.0",
+  "description": "Local multiplayer games with phones as controllers",
+  "main": "index.js",
+  "scripts": {
+    "build": "webpack --progress --colors",
+    "dev": "node server/index.js",
+    "start": "node server/index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Pandaqi/peer-to-peer.git"
+  },
+  "engines": {
+    "node": "6.11.0"
+  },
+  "keywords": [
+    "Node.js",
+    "Phaser.io"
+  ],
+  "author": "Tiamo Pastoor",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Pandaqi/peer-to-peer/issues"
+  },
+  "homepage": "https://github.com/Pandaqi/peer-to-peer#readme",
+
+  "dependencies": {
+    "websocket": "^1.0.0"
+  }
+}

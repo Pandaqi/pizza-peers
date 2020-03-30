@@ -4,22 +4,31 @@ var webSocketsServerPort = 1337;
 var WebSocketServer = require('websocket').server;
 var http = require('http');
 
+/*
 var server = http.createServer(function(request, response) {
   // process HTTP request. Since we're writing just WebSockets
   // server we don't have to implement anything.
 });
 
-
-
 server.listen(webSocketsServerPort, function() {
   console.log((new Date()) + " Server is listening on port "
       + webSocketsServerPort);
 });
+*/
 
-// create the (web socket) server
-wsServer = new WebSocketServer({
-  httpServer: server
-});
+// stuff for creating an app that is a WEBSOCKET and also serves STATIC FILES
+var WebSocketServer = require('websocket').server;
+var express         = require('express');
+var app             = express();
+var server          = app.listen(8888);
+
+// create the web socket server (using the HTTP server as a basis)
+var wsServer        = new WebSocketServer({ httpServer : server });
+
+console.log((new Date()) + " Server is listening on port ??");
+
+// this will make Express serve your static files (from the folder /public)
+app.use(express.static(__dirname + '/public'));
 
 // Global variable that contains all games currently being played!
 var rooms = {}

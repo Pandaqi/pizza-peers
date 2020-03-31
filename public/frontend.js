@@ -12,7 +12,8 @@ function initializeNetwork() {
   // if user is running mozilla then use it's built-in WebSocket
   window.WebSocket = window.WebSocket || window.MozWebSocket;
 
-  var connection = new WebSocket('ws://127.0.0.1:8888');
+  // online uses port 42950, local uses port 8888
+  var connection = new WebSocket('ws://127.0.0.1:42950');
 
   var status = document.getElementById('status');
 

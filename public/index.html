@@ -3,17 +3,20 @@
   <head>
     <meta charset="utf-8">
     <title>WebSockets test</title>
-    <style>
-    main {
-      max-width: 550px;
-      margin:auto;
-    }
 
-    button, input {
-      width: 100%;
-      font-size: 16pt;
-    }
-  </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <style>
+      main {
+        max-width: 550px;
+        margin:auto;
+      }
+
+      button, input {
+        width: 100%;
+        font-size: 16pt;
+      }
+    </style>
   </head>
   <body>
     <!-- ALTERNATIVE LIBRARY FOR WEBSOCKETS: https://github.com/websockets/ws -->
@@ -41,13 +44,11 @@
       </div>
     </main>
 
-    <!-- JQuery include - can I remove this at some point? -->
-    <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
-    
     <!-- Peer to Peer support -->
     <script src="simplepeer.min.js"></script>
 
     <!-- Actual code (for connecting with websockets, starting/joining game, and switching to peer-to-peer) -->
+    <!-- It's important to put this here, so I'm sure the rest of the document has loaded! -->
     <script src="frontend.js"></script>
   </body>
 </html>

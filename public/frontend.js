@@ -5,7 +5,7 @@
 // HOW TO MAKE SERVER WEBSOCKET + SERVE STATIC FILES
 // https://stackoverflow.com/questions/20919947/serve-websocket-and-http-server-at-same-address-on-node-js
 
-$(function () {
+function initializeNetwork() {
   // global peer (will be set to its actual value, once players have created/joined a game)
   var peers = [];
 
@@ -14,13 +14,11 @@ $(function () {
 
   var connection = new WebSocket('ws://127.0.0.1:8888');
 
-  var status = $('#status');
+  var status = document.getElementById('status');
 
   // if browser doesn't support WebSocket, just show some notification and exit
   if (!window.WebSocket) {
-    status.html($('<p>',
-      { text:'Sorry, but your browser doesn\'t support WebSocket.'}
-    ));
+    status.innerHTML += 'Sorry, but your browser doesn\'t support WebSocket.';
     return;
   }
 
@@ -32,9 +30,7 @@ $(function () {
     // an error occurred when sending/receiving data
 
     // just in case there were some problems with connection...
-    status.html($('<p>', {
-      text: 'Sorry, but there\'s some problem with your connection or the server is down.'
-    }));
+    status.innerHTML += 'Sorry, but there\'s some problem with your connection or the server is down.';
   };
 
   connection.onmessage = function (message) {
@@ -188,4 +184,6 @@ $(function () {
       document.getElementById('messageStream').innerHTML += "<p>" + data + "</p>";
     })
   }
-});
+}
+
+initializeNetwork();

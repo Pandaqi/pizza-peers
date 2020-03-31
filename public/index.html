@@ -7,6 +7,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <style>
+      *, html, body {
+        margin:0;
+        padding:0;
+        font-size:16pt;
+      }
+
       main {
         max-width: 550px;
         margin:auto;
@@ -16,10 +22,33 @@
         width: 100%;
         font-size: 16pt;
       }
+
+      #phaser-game {
+        position:absolute;
+        left:0;
+        right:0;
+        top:0;
+        bottom:0;
+        margin:0;
+        padding:0;
+        box-sizing:border-box;
+
+        z-index:-10;
+      }
+
+      canvas {
+        width:100%;
+        height:100%;
+        margin:0;
+        margin-bottom:-10px;
+        padding:0;
+      }
     </style>
   </head>
   <body>
     <!-- ALTERNATIVE LIBRARY FOR WEBSOCKETS: https://github.com/websockets/ws -->
+
+    <!-- Create/Join game screen -->
     <main>
       <div id="status"></div>
 
@@ -44,8 +73,16 @@
       </div>
     </main>
 
+    <!-- Game container -->
+    <div id="phaser-game">
+    </div>
+
     <!-- Peer to Peer support -->
     <script src="simplepeer.min.js"></script>
+
+    <!-- Load Phaser 3.22.0 via CDN -->
+    <!-- (The actual Phaser game node will only be created and started when needed, later in this app lifecycle) -->
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.22.0/dist/phaser.min.js"></script> 
 
     <!-- Actual code (for connecting with websockets, starting/joining game, and switching to peer-to-peer) -->
     <!-- It's important to put this here, so I'm sure the rest of the document has loaded! -->

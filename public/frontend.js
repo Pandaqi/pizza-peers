@@ -5,6 +5,9 @@
 // HOW TO MAKE SERVER WEBSOCKET + SERVE STATIC FILES
 // https://stackoverflow.com/questions/20919947/serve-websocket-and-http-server-at-same-address-on-node-js
 
+// global GAME variable that we can access if we want
+var GAME = null;
+
 function initializeNetwork() {
   // global peer (will be set to its actual value, once players have created/joined a game)
   var peers = [];
@@ -13,8 +16,17 @@ function initializeNetwork() {
   window.WebSocket = window.WebSocket || window.MozWebSocket;
 
   // online uses random ports, local uses port 8888
+  // also, Heroku uses https by default, so use wss:// (secure websocket), otherwise we get warnings and errors about security
+  // see this: https://stackoverflow.com/questions/11768221/firefox-websocket-security-issue
+
   //var connection = new WebSocket('ws://127.0.0.1:42950');
-  var connection = new WebSocket("ws://" + location.host);
+  var host = location.host || '127.0.0.1:8888'
+  if(location.host.length <= 0) { 
+    host = 'ws://' + host;
+  } else {
+    host = 'wss://' + host;
+  }
+  var connection = new WebSocket(host);
 
   var status = document.getElementById('status');
 
@@ -51,6 +63,9 @@ function initializeNetwork() {
     if(message.type == 'confirmRoom') {
       // display the room code
       document.getElementById('messageStream').innerHTML += 'Room Code:' + message.room
+
+      // fire up Phaser!
+      startPhaser();
     }
 
     // if it's an OFFER ...
@@ -136,6 +151,8 @@ function initializeNetwork() {
     // add peer to peers list
     peers.push(peer);
 
+    // remember we're not connected yet
+    peer.isConnected = false;
     
     peer.on('error', function(err) {
       console.log('error', err)
@@ -161,6 +178,9 @@ function initializeNetwork() {
     })
 
     peer.on('connect', function() {
+      // remember we're connected
+      peer.isConnected = true;
+
       console.log('CONNECT');
 
       // yay, we're connected!
@@ -169,11 +189,15 @@ function initializeNetwork() {
       if(initiator) {
         // TO DO: Go to lobby screen on phone
 
+        // show form for submitting messages
         document.getElementById("messageForm").style.display = 'block';
 
       // otherwise, we're the computer
       } else {
         // TO DO: Show that this user is now connected
+
+        // add player into the game
+        GAME.scene.keys.sceneA.addPlayer(peer);
       }
 
       peer.send('whatever' + Math.random())
@@ -184,8 +208,63 @@ function initializeNetwork() {
 
       // add message to the message stream
       document.getElementById('messageStream').innerHTML += "<p>" + data + "</p>";
+
+      if(peer.isConnected) {
+        // move player (just for testing now)
+        GAME.scene.keys.sceneA.movePlayer(peer);
+      }
     })
   }
 }
 
+// call the function that initializes the WebSockets + Peer-to-Peer stuff
 initializeNetwork();
+
+// STUFF (devlog) about scenes: https://phaser.io/phaser3/devlog/121
+var SceneA = new Phaser.Class({
+
+    Extends: Phaser.Scene,
+
+    initialize:
+
+    function SceneA ()
+    {
+        Phaser.Scene.call(this, { key: 'sceneA' });
+
+        this.players = [];
+    },
+
+    addPlayer: function(peer) {
+      // create new player (just a square now)
+      var newPlayer = this.add.graphics();
+
+      newPlayer.fillStyle(0xff3300, 1);
+      newPlayer.fillRect(100, 200, 100, 100);
+
+      // save player in array
+      this.players.push(newPlayer);
+
+      // save player index on peer
+      peer.playerGameIndex = (this.players.length - 1);
+    },
+
+    movePlayer: function(peer) {
+      // just move the player 50 px to the right (just for testing now)
+      this.players[peer.playerGameIndex].x += 50;
+    }
+
+});
+
+function startPhaser() {
+  // initialize Phaser game
+  var config = {
+    type: Phaser.AUTO,
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#999999',
+    parent: 'phaser-game',
+    scene: [SceneA]
+  }
+
+  GAME = new Phaser.Game(config);
+}

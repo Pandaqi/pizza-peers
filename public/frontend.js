@@ -236,9 +236,6 @@ function initializeNetwork() {
         // initialize our interface!
         startController();
 
-        // show form for submitting messages
-        document.getElementById("messageForm").style.display = 'block';
-
       // otherwise, we're the computer
       } else {
         // display confirmation
@@ -301,6 +298,15 @@ function initializeNetwork() {
   }
 
   function startController() {
+    // remove/hide status container
+    status.style.display = 'none';
+
+    // remove message stream
+    document.getElementById('messageStream').style.display = 'none';
+
+    // show form for submitting messages
+    document.getElementById("messageForm").style.display = 'block';
+
     // add touch/mouse event listeners
     var gameDiv = document.getElementById('phaser-game');
     
@@ -327,8 +333,13 @@ function initializeNetwork() {
         x = touch.pageX;
         y = touch.pageY;*/
 
-        x = e.touches[0].pageX;
-        y = e.touches[0].pageY;
+        // these coordinates are not available when touch ends
+        // because, well, there's no touch anymore
+        if(e.type == 'touchstart' || e.type == 'touchmove') {
+          x = e.touches[0].pageX;
+          y = e.touches[0].pageY;
+        }
+
 
         // prevent default behaviour + bubbling from touch into mouse events
         e.preventDefault();
@@ -337,6 +348,16 @@ function initializeNetwork() {
     } else if (e.type == 'mousedown' || e.type == 'mouseup' || e.type == 'mousemove' || e.type == 'mouseover' || e.type=='mouseout' || e.type=='mouseenter' || e.type=='mouseleave') {
         x = e.clientX;
         y = e.clientY;
+    }
+
+    // if the interaction has ENDED, reset vector so player becomes static
+    // don't do anything else
+    if(e.type == 'touchend' || e.type == 'touchcancel' || e.type == 'mouseout' || e.type == 'mouseleave') {
+      console.log("TOUCH ENDDDD");
+      var msg = { 'type': 'move', 'vec': [0,0] };
+      peers[0].send( JSON.stringify(msg) );
+
+      return false;
     }
 
     // get center of screen
@@ -348,12 +369,6 @@ function initializeNetwork() {
     // get vector between position and center, normalize it
     var length = Math.sqrt((x-cX)*(x-cX) + (y-cY)*(y-cY))
     var vector = [(x - cX)/length, (y - cY)/length];
-
-    // if the interaction has ENDED, reset vector so player becomes static
-    if(e.type == 'touchend' || e.type == 'touchcancel' || e.type == 'mouseout' || e.type == 'mouseleave') {
-      console.log("TOUCH ENDDDD");
-      vector = [0,0]
-    }
 
     // rotate movement arrow to match
     var angle = Math.atan2(vector[1], vector[0]) * 180 / Math.PI;

@@ -85,8 +85,17 @@ wsServer.on('request', function(request) {
 			// which room should we join?
 			var roomToJoin = message.room
 
+			// what is the player username?
+			var usn = message.username
+
+			// does the username already exist? If so, add random characters to the end until it's unique
+			while(rooms[roomToJoin].players[usn] != undefined) {
+				var randChar = "abcdefghijklmnopqrstuvwxyz0123456789"
+				usn = usn + randChar.charAt( Math.floor(Math.random() * randChar.length) )
+			}
+
 			// add this player to that room
-			rooms[roomToJoin].players.push(connection);
+			rooms[roomToJoin].players[usn] = connection;
 
 			// remember we joined the room
 			roomID = roomToJoin;
@@ -96,9 +105,9 @@ wsServer.on('request', function(request) {
 			// it sends this along with the message
 			var offer = message.offer;
 
-			// append the INDEX of the client extending the offer
+			// append the USERNAME of the client extending the offer
 			// (otherwise, the server doesn't know to whom the response needs to be send)
-			offer.clientIndex = (rooms[roomToJoin].players.length - 1)
+			offer.clientUsername = usn;
 
 			// now relay this offer to the server
 			rooms[roomToJoin].server.sendUTF(JSON.stringify(offer));
@@ -111,7 +120,7 @@ wsServer.on('request', function(request) {
 		//
 		if(message.action == "offerResponse") {
 			// get the client that should receive it
-			var receivingClient = message.clientIndex
+			var receivingClient = message.clientUsername
 
 			// get the response
 			var offerResponse = message.response;

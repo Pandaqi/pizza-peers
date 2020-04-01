@@ -85,8 +85,8 @@ function initializeNetwork() {
       var newPeer = peers[peers.length - 1];
 
       // extract the player that send the offer
-      newPeer.curClientIndex = message.clientIndex;
-      delete message.clientIndex;
+      newPeer.curClientUsername = message.clientUsername;
+      delete message.clientUsername;
 
 
       // put this signal into our peer (should be the last one we created)
@@ -125,6 +125,27 @@ function initializeNetwork() {
 
   // Listen for button for JOINING games
   document.getElementById("joinGameBtn").addEventListener('click', function(ev) {
+      //
+      // some error checks (username, room code, valid messages, etc.)
+      //
+      var roomVal = document.getElementById('roomInput').value;
+      var usn = document.getElementById('usernameInput').value;
+
+      if(roomVal.length != 4) {
+        status.innerHTML = 'Incorrect room code!';
+        return
+      }
+
+      if(usn.length <= 2) {
+        status.innerHTML = 'Username too short!';
+        return;
+      }
+
+      if(usn.length >= 20) {
+        status.innerHTML = 'Username too long!';
+        return;
+      }
+
       // Disable button + default actions
       ev.preventDefault()
       ev.target.disabled = true;
@@ -185,15 +206,16 @@ function initializeNetwork() {
       
       // if it's an OFFER, push it to the websocket (along with joinRoom credentials)
       if(data.type == 'offer') {
-        var roomVal = document.getElementById('roomInput').value;
-        var message = { "action": 'joinRoom', "room": roomVal, "offer": data }
+        var roomVal = document.getElementById('roomInput').value.toUpperCase();
+        var usn = document.getElementById('usernameInput').value.toUpperCase();
+        var message = { "action": 'joinRoom', "room": roomVal, "username": usn,"offer": data }
 
         connection.send( JSON.stringify(message) );
       }
 
       // If it's an ANSWER, push it to the websocket
       if(data.type == 'answer') {
-        var message = { "action": "offerResponse", "clientIndex": peer.curClientIndex, "response": data }
+        var message = { "action": "offerResponse", "clientUsername": peer.curClientUsername, "response": data }
 
         connection.send( JSON.stringify(message) );
       }
@@ -237,12 +259,112 @@ function initializeNetwork() {
       }
 
       if(peer.isConnected) {
+        // player has requested a MOVE
         if(data.type == 'move') {
-          // update player
           GAME.scene.keys.sceneA.updatePlayer(peer, data.vec);
+        }
+
+        // player has requested to BUY an ingredient
+        if(data.type == 'buy') {
+          GAME.scene.keys.sceneA.buyAction(peer);
+        }
+
+        // player is at an INGREDIENT location (for the first time; overlapEnter)
+        if(data.type == 'ing') {
+          var ingredients = ['Dough', 'Tomatoes', 'Cheese', 'Spice', 'Vegetables']
+
+          // create the button
+          var button = document.createElement("button");
+          button.innerHTML = "Buy " + ingredients[data.ing] + " for " + data.price + " euros!";
+
+          // append to dynamic interface
+          document.getElementById('dynamicInterface').appendChild(button);
+
+          // add event handler
+          // when we click this button ...
+          button.addEventListener ("click", function() {
+            // we buy the ingredient for that price!
+            // (the computer should remember the offer it made)
+            var msg = { 'type':'buy' }
+            peer.send( JSON.stringify(msg) );
+
+            console.log("BUY SOME INGREDIENTSSSS");
+          });
+        }
+
+        // player has moved away from an INGREDIENT location (overlapExit)
+        if(data.type == 'ing-end') {
+          document.getElementById('dynamicInterface').innerHTML = '';
         }
       }
     })
+  }
+
+  function startController() {
+    // add touch/mouse event listeners
+    var gameDiv = document.getElementById('phaser-game');
+    
+    gameDiv.addEventListener('mousemove', onTouchEvent);
+
+    gameDiv.addEventListener('touchstart', onTouchEvent);
+    gameDiv.addEventListener('touchmove', onTouchEvent);
+    gameDiv.addEventListener('touchend', onTouchEvent);
+    gameDiv.addEventListener('touchcancel', onTouchEvent);
+
+    // insert movement image at the center
+    // (it rotates to show how you're currently moving)
+    document.getElementById('movementArrow').style.display = 'block';
+  }
+
+  function onTouchEvent(e) {
+    // grab the right coordinates (distinguish between touches, mouse, etc.)
+    var x = 0,
+        y = 0;
+
+    if(e.type == 'touchstart' || e.type == 'touchmove' || e.type == 'touchend' || e.type == 'touchcancel'){
+       //NOPE: This would only be necessary (along with some other code) if we wanted the delta position of moving
+       /* var touch = e.originalEvent.touches[0] || e.originalEvent.changedTouches[0];
+        x = touch.pageX;
+        y = touch.pageY;*/
+
+        x = e.touches[0].pageX;
+        y = e.touches[0].pageY;
+
+        // prevent default behaviour + bubbling from touch into mouse events
+        e.preventDefault();
+        e.stopPropagation();
+
+    } else if (e.type == 'mousedown' || e.type == 'mouseup' || e.type == 'mousemove' || e.type == 'mouseover' || e.type=='mouseout' || e.type=='mouseenter' || e.type=='mouseleave') {
+        x = e.clientX;
+        y = e.clientY;
+    }
+
+    // get center of screen
+    var w  = document.documentElement.clientWidth, 
+        h  = document.documentElement.clientHeight;
+    var cX = 0.5*w, 
+        cY = 0.5*h;
+
+    // get vector between position and center, normalize it
+    var length = Math.sqrt((x-cX)*(x-cX) + (y-cY)*(y-cY))
+    var vector = [(x - cX)/length, (y - cY)/length];
+
+    // if the interaction has ENDED, reset vector so player becomes static
+    if(e.type == 'touchend' || e.type == 'touchcancel' || e.type == 'mouseout' || e.type == 'mouseleave') {
+      console.log("TOUCH ENDDDD");
+      vector = [0,0]
+    }
+
+    // rotate movement arrow to match
+    var angle = Math.atan2(vector[1], vector[0]) * 180 / Math.PI;
+    if(angle < 0) { angle += 360; }
+    document.getElementById('movementArrow').style.transform = 'rotate(' + angle + 'deg)';
+
+    // send this vector across the network
+    var message = { 'type': 'move', 'vec': vector }
+    peers[0].send( JSON.stringify(message) );
+
+    return false;
   }
 }
 
@@ -277,22 +399,47 @@ var SceneA = new Phaser.Class({
       var styleConfig = {
         fontFamily: '"Roboto Condensed"',
         align: 'right',
-        color: '#000000'
+        color: '#000000',
+        fontSize: 64
       }
 
       roomText.setStyle(styleConfig);
 
       //
+      // add variables for general counters (money, ingredients, etc.)
+      // also create their text fields
+
+      this.money = 0;
+      this.ingredients = [0,0,0,0,0];
+
+      this.moneyText = this.add.text(10, 100, 'M');
+      this.ingredientText = this.add.text(10, 150, 'I');
+
+      this.updateMoney(0);
+      this.updateIngredient(0, 0);
+
+      //
       // add boundaries at screen edge
+      // (add left, top, right, bottom walls)
       //
       var boundThickness = 20;
       this.boundBodies = this.physics.add.staticGroup();
 
-      // add left, top, right, bottom walls
-      this.boundBodies.create(0, 0.5*this.canvas.height, 'bounds').setSize(boundThickness, this.canvas.height);
-      this.boundBodies.create(0.5*this.canvas.width, 0, 'bounds').setSize(this.canvas.width, boundThickness);
-      this.boundBodies.create(this.canvas.width, 0.5*this.canvas.height, 'bounds').setSize(boundThickness, this.canvas.height);
-      this.boundBodies.create(0.5*this.canvas.width, this.canvas.height, 'bounds').setSize(this.canvas.width, boundThickness);
+      var bounds = [
+        [0, 0.5*this.canvas.height,                 boundThickness, this.canvas.height],
+        [0.5*this.canvas.width, 0,                  this.canvas.width, boundThickness ],
+        [this.canvas.width, 0.5*this.canvas.height, boundThickness, this.canvas.height],
+        [0.5*this.canvas.width, this.canvas.height, this.canvas.width, boundThickness]
+      ]
+
+      for(var i = 0; i < 4; i++) {
+        var bb = this.boundBodies.create(bounds[i][0], bounds[i][1], 'bounds');
+
+        bb.displayWidth = bounds[i][2];
+        bb.displayHeight = bounds[i][3];
+
+        bb.setSize(bounds[i][2], bounds[i][3]).refreshBody();
+      }
 
       // 
       // create players physics group
@@ -312,24 +459,96 @@ var SceneA = new Phaser.Class({
             frameRate: 10,
             repeat: -1
         });
+
+      //
+      // create some ingredient locations
+      //
+      this.ingredientBodies = this.physics.add.staticGroup();
+      var numIngBodies = 8;
+
+      for(var i = 0; i < numIngBodies; i++) {
+        var margin = 50
+        var randX = Phaser.Math.Between(margin, this.canvas.width - margin), 
+            randY = Phaser.Math.Between(margin, this.canvas.height - margin);
+
+        var ing = this.ingredientBodies.create(randX, randY, 'ingredientLocation');
+
+        // set some properties (randomly for now) => ingredient type and price
+        ing.myNum = Math.floor(Math.random() * 5);
+        ing.price = Math.floor(Math.random() * 5);
+      }
+
+      this.physics.add.overlap(this.playerBodies, this.ingredientBodies, this.playerAtIngredient, null, this);
+    },
+
+    playerAtIngredient: function(player, ingLoc) {
+      // if our current ingredient is null, update it to reflect our current ingredient spot
+      if(player.currentIngredient == null) {
+        var msg = { 'type': 'ing', 'ing': ingLoc.myNum, 'price': ingLoc.price }
+
+        player.currentIngredient = msg;
+        player.currentIngLocation = ingLoc;
+        player.myPeer.send( JSON.stringify(msg) );
+      }
+    },
+
+    buyAction: function(peer) {
+      var buyInfo = this.players[peer.playerGameIndex].currentIngredient;
+
+      // subtract money (price for buying)
+      this.updateMoney(-buyInfo.price);
+
+      // add ingredient(s)
+      this.updateIngredient(buyInfo.ing, 1);
+    },
+
+    updateMoney: function(dm) {
+      this.money += dm;
+
+      this.moneyText.text = 'Money: ' + this.money;
+    },
+
+    updateIngredient: function(ing, val) {
+      this.ingredients[ing] += val;
+
+      var ingredientString = '';
+      var ingredients = ['Dough', 'Tomatoes', 'Cheese', 'Spice', 'Vegetables']
+      for(var i = 0; i < 5; i++) {
+        ingredientString += ingredients[i] + ": " + this.ingredients[i] + "\n";
+      }
+
+      this.ingredientText.text = ingredientString;
     },
 
     update: function(dt) {
-      /* NOT NECESSARY IF WE USE PHYSICS
-
       // go through all players
       for(var i = 0; i < this.players.length; i++) {
-        // update their position according to velocity
-        // (which is set using input)
         var p = this.players[i];
 
-        console.log("Moving player", p.vel.x, p.vel.y)
+        // set text above their heads
+        p.usernameText.x = p.x;
+        p.usernameText.y = p.y - 0.5*p.displayHeight - 32;
 
-        p.x += p.vel.y;
-        p.y += p.vel.x;
+        // check if we've STOPPED overlapping our ingredient location
+        if(p.currentIngLocation != null) {
+          if(!this.checkOverlap(p, p.currentIngLocation)) {
+            // if so, reset our variables
+            p.currentIngLocation = null;
+            p.currentIngredient = null;
+
+            // send message over peer
+            var msg = { 'type':'ing-end' }
+            p.myPeer.send( JSON.stringify(msg) );
+          }
+        }
       }
+    },
 
-      */
+    checkOverlap: function(spriteA, spriteB) {
+        var boundsA = spriteA.getBounds();
+        var boundsB = spriteB.getBounds();
+
+        return Phaser.Geom.Intersects.RectangleToRectangle(boundsA, boundsB);
     },
 
     addPlayer: function(peer) {
@@ -359,6 +578,26 @@ var SceneA = new Phaser.Class({
 
       // save player index on peer
       peer.playerGameIndex = (this.players.length - 1);
+      newPlayer.myPeer = peer;
+
+      //
+      // General properties of the player
+      //
+      newPlayer.currentIngredient = null;
+      newPlayer.currentIngLocation = null;
+
+      //
+      // create text to show player username
+      // (and make it a child of player body)
+      //
+      var config = {font: "27px Verdana",
+            fontWeight: "bold",
+            fill: "#000000"
+          };
+
+      var text = this.add.text(0, 0, peer.curClientUsername, config);
+      text.setOrigin(0.5);
+      newPlayer.usernameText = text;
     },
 
     updatePlayer: function(peer, vec) {
@@ -373,6 +612,11 @@ var SceneA = new Phaser.Class({
 
       // just move the player according to velocity vector
       player.setVelocity(vec[0] * speed, vec[1] * speed);
+
+      // DEBUGGING: Checking if "touchend" (stop moving) event works
+      if(vec[0] == 0 && vec[1] == 0) {
+        console.log("RECEIVED A RESET FOR PLAYER " + peer.playerGameIndex);
+      }
 
       // flip properly (on the horizontal axis)
       if(vec[0] != 0) {
@@ -401,68 +645,3 @@ function startPhaser() {
   GAME = new Phaser.Game(config);
 }
 
-
-function startController() {
-
-  function onTouchEvent(e) {
-    // grab the right coordinates (distinguish between touches, mouse, etc.)
-    var x,y;
-    if(e.type == 'touchstart' || e.type == 'touchmove' || e.type == 'touchend' || e.type == 'touchcancel'){
-       //NOPE: This would only be necessary (along with some other code) if we wanted the delta position of moving
-       /* var touch = e.originalEvent.touches[0] || e.originalEvent.changedTouches[0];
-        x = touch.pageX;
-        y = touch.pageY;*/
-
-        x = e.touches[0].pageX;
-        y = e.touches[0].pageY;
-
-        // prevent default behaviour + bubbling from touch into mouse events
-        e.preventDefault();
-        e.stopPropagation();
-
-    } else if (e.type == 'mousedown' || e.type == 'mouseup' || e.type == 'mousemove' || e.type == 'mouseover'|| e.type=='mouseout' || e.type=='mouseenter' || e.type=='mouseleave') {
-        x = e.clientX;
-        y = e.clientY;
-    }
-
-    // get center of screen
-    var w  = document.documentElement.clientWidth, 
-        h  = document.documentElement.clientHeight;
-    var cX = 0.5*w, 
-        cY = 0.5*h;
-
-    // get vector between position and center, normalize it
-    var length = Math.sqrt((x-cX)*(x-cX) + (y-cY)*(y-cY))
-    var vector = [(x - cX)/length, (y - cY)/length];
-
-    // if the interaction has ENDED, reset vector so player becomes static
-    if(e.type == 'touchend' || e.type == 'touchcancel') {
-      vector = [0,0]
-    }
-
-    // rotate movement arrow to match
-    var angle = Math.atan2(vector[1], vector[0]) * 180 / Math.PI;
-    if(angle < 0) { angle += 360; }
-    document.getElementById('movementArrow').style.transform = 'rotate(' + angle + 'deg)';
-
-    // send this vector across the network
-    var message = { 'type': 'move', 'vec': vector }
-    peers[0].send( JSON.stringify(message) );
-
-    // debug log
-    console.log("MY TOUCH POSITION IS: ", vector);
-  }
-
-  // add touch/mouse event listeners
-  document.addEventListener('mousedown', onTouchEvent);
-  document.addEventListener('mousemove', onTouchEvent);
-
-  document.addEventListener('touchstart', onTouchEvent);
-  document.addEventListener('touchmove', onTouchEvent);
-  document.addEventListener('touchend', onTouchEvent);
-  document.addEventListener('touchcancel', onTouchEvent);
-
-  // insert movement image at the center
-  document.body.innerHTML += '<img src="assets/movementArrow.png" id="movementArrow" />';
-
-}

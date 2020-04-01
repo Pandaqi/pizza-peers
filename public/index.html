@@ -23,11 +23,19 @@
       main {
         max-width: 550px;
         margin:auto;
+        padding:20px;
+        box-sizing:border-box;
+        z-index:10;
+        position: relative;
       }
 
       button, input {
         width: 100%;
         font-size: 16pt;
+      }
+
+      input[type="text"] {
+        text-transform: uppercase;
       }
 
       #phaser-game {
@@ -40,7 +48,7 @@
         padding:0;
         box-sizing:border-box;
 
-        z-index:-10;
+        z-index:0;
       }
 
       canvas {
@@ -59,6 +67,10 @@
         height: 64px;
         margin-top: -32px; /* Half the height */
         margin-left: -32px; /* Half the width */
+        z-index:0;
+        pointer-events: none;
+
+        display: none;
       }
     </style>
   </head>
@@ -78,7 +90,8 @@
       <hr />
 
       <div>
-        <input type="text" id="roomInput" />
+        <input type="text" id="roomInput" placeholder="room code" />
+        <input type="text" id="usernameInput" placeholder="username" />
         <button id="joinGameBtn">JOIN GAME</button>
       </div>
     </main>
@@ -88,15 +101,20 @@
 
       </div>
 
-      <div id="messageForm" style="display:none;">
+      <div id="messageForm" style="display:none; margin-bottom:50px;">
         <textarea id="messageContent" style="width:100%;"></textarea>
         <button id="sendMessageBtn">Send Message</button>
+      </div>
+
+      <div id="dynamicInterface">
       </div>
     </main>
 
     <!-- Game container -->
     <div id="phaser-game">
     </div>
+
+    <img src="assets/movementArrow.png" id="movementArrow" />
 
     <!-- Peer to Peer support -->
     <script src="simplepeer.min.js"></script>

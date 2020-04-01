@@ -369,10 +369,15 @@ var SceneA = new Phaser.Class({
       }
 
       var player = this.players[peer.playerGameIndex];
-      var speed = 100;
+      var speed = 200;
 
       // just move the player according to velocity vector
       player.setVelocity(vec[0] * speed, vec[1] * speed);
+
+      // flip properly (on the horizontal axis)
+      if(vec[0] != 0) {
+        player.displayWidth = Math.sign(vec[0]) * Math.abs(player.displayWidth);
+      }
     },
 
 });
@@ -384,7 +389,7 @@ function startPhaser() {
     type: Phaser.AUTO,
     width: '100%',
     height: '100%',
-    backgroundColor: '#999999',
+    backgroundColor: '#8EB526',
     parent: 'phaser-game',
     scene: [SceneA],
     physics: {
@@ -400,17 +405,21 @@ function startPhaser() {
 function startController() {
 
   function onTouchEvent(e) {
-
     // grab the right coordinates (distinguish between touches, mouse, etc.)
     var x,y;
     if(e.type == 'touchstart' || e.type == 'touchmove' || e.type == 'touchend' || e.type == 'touchcancel'){
-        var touch = e.originalEvent.touches[0] || e.originalEvent.changedTouches[0];
+       //NOPE: This would only be necessary (along with some other code) if we wanted the delta position of moving
+       /* var touch = e.originalEvent.touches[0] || e.originalEvent.changedTouches[0];
         x = touch.pageX;
-        y = touch.pageY;
+        y = touch.pageY;*/
+
+        x = e.touches[0].pageX;
+        y = e.touches[0].pageY;
 
         // prevent default behaviour + bubbling from touch into mouse events
         e.preventDefault();
         e.stopPropagation();
+
     } else if (e.type == 'mousedown' || e.type == 'mouseup' || e.type == 'mousemove' || e.type == 'mouseover'|| e.type=='mouseout' || e.type=='mouseenter' || e.type=='mouseleave') {
         x = e.clientX;
         y = e.clientY;
@@ -426,6 +435,16 @@ function startController() {
     var length = Math.sqrt((x-cX)*(x-cX) + (y-cY)*(y-cY))
     var vector = [(x - cX)/length, (y - cY)/length];
 
+    // if the interaction has ENDED, reset vector so player becomes static
+    if(e.type == 'touchend' || e.type == 'touchcancel') {
+      vector = [0,0]
+    }
+
+    // rotate movement arrow to match
+    var angle = Math.atan2(vector[1], vector[0]) * 180 / Math.PI;
+    if(angle < 0) { angle += 360; }
+    document.getElementById('movementArrow').style.transform = 'rotate(' + angle + 'deg)';
+
     // send this vector across the network
     var message = { 'type': 'move', 'vec': vector }
     peers[0].send( JSON.stringify(message) );
@@ -440,4 +459,10 @@ function startController() {
 
   document.addEventListener('touchstart', onTouchEvent);
   document.addEventListener('touchmove', onTouchEvent);
+  document.addEventListener('touchend', onTouchEvent);
+  document.addEventListener('touchcancel', onTouchEvent);
+
+  // insert movement image at the center
+  document.body.innerHTML += '<img src="assets/movementArrow.png" id="movementArrow" />';
+
 }

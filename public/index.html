@@ -4,7 +4,11 @@
     <meta charset="utf-8">
     <title>WebSockets test</title>
 
+    <!-- Default viewport stuff to make the website nicely zoomed in on mobile -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Manifest for ensuring the website takes up full space and is in landscape mode -->
+    <link rel="manifest" href="manifest.json">
 
     <style>
       *, html, body {
@@ -48,10 +52,12 @@
   <body>
     <!-- ALTERNATIVE LIBRARY FOR WEBSOCKETS: https://github.com/websockets/ws -->
 
-    <!-- Create/Join game screen -->
     <main>
       <div id="status"></div>
+    </main>
 
+    <!-- Create/Join game screen -->
+    <main id="overlay-createJoin">
       <div>
         <button id="createGameBtn">CREATE GAME</button>
       </div>
@@ -62,7 +68,9 @@
         <input type="text" id="roomInput" />
         <button id="joinGameBtn">JOIN GAME</button>
       </div>
+    </main>
 
+    <main>
       <div id="messageStream">
 
       </div>

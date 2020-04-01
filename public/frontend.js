@@ -8,10 +8,13 @@
 // global GAME variable that we can access if we want
 var GAME = null;
 
-function initializeNetwork() {
-  // global peer (will be set to its actual value, once players have created/joined a game)
-  var peers = [];
+// global variable that holds our connection to the WebSocket (signaling) server
+var connection;
 
+// global variable that holds all our peers (will be set to its actual values, once players have created/joined a game)
+var peers = [];
+
+function initializeNetwork() {
   // if user is running mozilla then use it's built-in WebSocket
   window.WebSocket = window.WebSocket || window.MozWebSocket;
 
@@ -21,18 +24,18 @@ function initializeNetwork() {
 
   //var connection = new WebSocket('ws://127.0.0.1:42950');
   var host = location.host || '127.0.0.1:8888'
-  if(location.host.length <= 0) { 
+  if(location.host.length <= 0 || host == "127.0.0.1:8888") { 
     host = 'ws://' + host;
   } else {
     host = 'wss://' + host;
   }
-  var connection = new WebSocket(host);
+  connection = new WebSocket(host);
 
   var status = document.getElementById('status');
 
   // if browser doesn't support WebSocket, just show some notification and exit
   if (!window.WebSocket) {
-    status.innerHTML += 'Sorry, but your browser doesn\'t support WebSocket.';
+    status.innerHTML = 'Sorry, but your browser doesn\'t support WebSocket.';
     return;
   }
 
@@ -44,7 +47,7 @@ function initializeNetwork() {
     // an error occurred when sending/receiving data
 
     // just in case there were some problems with connection...
-    status.innerHTML += 'Sorry, but there\'s some problem with your connection or the server is down.';
+    status.innerHTML = 'Sorry, but there\'s some problem with your connection or the server is down.';
   };
 
   connection.onmessage = function (message) {
@@ -62,10 +65,16 @@ function initializeNetwork() {
     // if it's a confirmation of the created game (room) ...
     if(message.type == 'confirmRoom') {
       // display the room code
-      document.getElementById('messageStream').innerHTML += 'Room Code:' + message.room
+      // document.getElementById('messageStream').innerHTML += 'Room Code:' + message.room
+
+      // display confirmation
+      status.innerHTML = 'Game created!';
+
+      // save room code on connection
+      connection.room = message.room
 
       // fire up Phaser!
-      startPhaser();
+      startPhaser(connection);
     }
 
     // if it's an OFFER ...
@@ -100,6 +109,12 @@ function initializeNetwork() {
       ev.preventDefault()
       ev.target.disabled = true;
 
+      // remove createJoin overlay
+      document.getElementById('overlay-createJoin').style.display = 'none';
+
+      // give some feedback
+      status.innerHTML = 'Creating room ...';
+
       var message = { "action": 'createRoom' }
 
       // Send a message to the websocket server, creating a game and opening ourselves to connections
@@ -114,6 +129,12 @@ function initializeNetwork() {
       ev.preventDefault()
       ev.target.disabled = true;
 
+      // remove createJoin overlay
+      document.getElementById('overlay-createJoin').style.display = 'none';
+
+      // give some feedback
+      status.innerHTML = 'Connecting ... (this may take 5-10 seconds)';
+
       // Create peer (initiator = true)
       // NOTE: Once the peer is done and it can start pairing, it will inform the websocket server
       createPeer(true);
@@ -126,7 +147,8 @@ function initializeNetwork() {
       ev.preventDefault()
 
       // send content of text area
-      peers[0].send(document.getElementById('messageContent').value);
+      var message = { 'type': 'msg', 'value': document.getElementById('messageContent').value }; 
+      peers[0].send( JSON.stringify(message) );
 
       // clear text area
       document.getElementById('messageContent').value = '';
@@ -189,29 +211,36 @@ function initializeNetwork() {
       if(initiator) {
         // TO DO: Go to lobby screen on phone
 
+        // initialize our interface!
+        startController();
+
         // show form for submitting messages
         document.getElementById("messageForm").style.display = 'block';
 
       // otherwise, we're the computer
       } else {
-        // TO DO: Show that this user is now connected
+        // display confirmation
+        status.innerHTML = 'You are connected!';
 
         // add player into the game
         GAME.scene.keys.sceneA.addPlayer(peer);
       }
-
-      peer.send('whatever' + Math.random())
     })
 
     peer.on('data', function(data) {
-      console.log('data: ' + data);
+      // parse the message
+      data = JSON.parse(data);
 
-      // add message to the message stream
-      document.getElementById('messageStream').innerHTML += "<p>" + data + "</p>";
+      if(data.type == 'msg') {
+        // add message to the message stream
+        document.getElementById('messageStream').innerHTML += "<p>" + data.value + "</p>";
+      }
 
       if(peer.isConnected) {
-        // move player (just for testing now)
-        GAME.scene.keys.sceneA.movePlayer(peer);
+        if(data.type == 'move') {
+          // update player
+          GAME.scene.keys.sceneA.updatePlayer(peer, data.vec);
+        }
       }
     })
   }
@@ -234,12 +263,96 @@ var SceneA = new Phaser.Class({
         this.players = [];
     },
 
-    addPlayer: function(peer) {
-      // create new player (just a square now)
-      var newPlayer = this.add.graphics();
+    preload: function() {
+       this.load.crossOrigin = "Anonymous"; // to solve CORS bullshit
+       this.canvas = this.sys.game.canvas;
 
-      newPlayer.fillStyle(0xff3300, 1);
-      newPlayer.fillRect(100, 200, 100, 100);
+       this.load.spritesheet('dude', 'assets/playerCharacter.png', { frameWidth: 64, frameHeight: 64 });
+    },
+
+    create: function() {
+      // add room code at top right
+      // NO, for now keep it simple, it's top left
+      var roomText = this.add.text(10, 10, 'Room: ' + connection.room);
+      var styleConfig = {
+        fontFamily: '"Roboto Condensed"',
+        align: 'right',
+        color: '#000000'
+      }
+
+      roomText.setStyle(styleConfig);
+
+      //
+      // add boundaries at screen edge
+      //
+      var boundThickness = 20;
+      this.boundBodies = this.physics.add.staticGroup();
+
+      // add left, top, right, bottom walls
+      this.boundBodies.create(0, 0.5*this.canvas.height, 'bounds').setSize(boundThickness, this.canvas.height);
+      this.boundBodies.create(0.5*this.canvas.width, 0, 'bounds').setSize(this.canvas.width, boundThickness);
+      this.boundBodies.create(this.canvas.width, 0.5*this.canvas.height, 'bounds').setSize(boundThickness, this.canvas.height);
+      this.boundBodies.create(0.5*this.canvas.width, this.canvas.height, 'bounds').setSize(this.canvas.width, boundThickness);
+
+      // 
+      // create players physics group
+      //
+      this.playerBodies = this.physics.add.group();
+
+      // make sure everything collides
+      this.physics.add.collider(this.playerBodies); // players collide with each other
+      this.physics.add.collider(this.boundBodies, this.playerBodies); // players collide with level bounds
+
+      //
+      // preload animations
+      //
+      this.anims.create({
+            key: 'run',
+            frames: this.anims.generateFrameNumbers('dude', { start: 0, end: 2 }),
+            frameRate: 10,
+            repeat: -1
+        });
+    },
+
+    update: function(dt) {
+      /* NOT NECESSARY IF WE USE PHYSICS
+
+      // go through all players
+      for(var i = 0; i < this.players.length; i++) {
+        // update their position according to velocity
+        // (which is set using input)
+        var p = this.players[i];
+
+        console.log("Moving player", p.vel.x, p.vel.y)
+
+        p.x += p.vel.y;
+        p.y += p.vel.x;
+      }
+
+      */
+    },
+
+    addPlayer: function(peer) {
+      // grab random color
+      // place square randomly on stage
+      var color = new Phaser.Display.Color();
+      color.random(50);
+
+      var margin = 50
+      var randX = Phaser.Math.Between(margin, this.canvas.width - margin), 
+          randY = Phaser.Math.Between(margin, this.canvas.height - margin);
+
+      // create new player (use graphics as base, turn into sprite within player group)
+      var newPlayer = this.playerBodies.create(randX, randY, 'dude');
+
+      // scale it up! => doesn't work, no idea why "this.body.updateFromGameObject()" is not a function
+      //newPlayer.setScale(4).refreshBody();
+
+      // tint it (for now, to distinguish players)
+      newPlayer.tint = color.color;
+
+      // just play the animation, always
+      newPlayer.anims.play('run', true);
 
       // save player in array
       this.players.push(newPlayer);
@@ -248,23 +361,83 @@ var SceneA = new Phaser.Class({
       peer.playerGameIndex = (this.players.length - 1);
     },
 
-    movePlayer: function(peer) {
-      // just move the player 50 px to the right (just for testing now)
-      this.players[peer.playerGameIndex].x += 50;
-    }
+    updatePlayer: function(peer, vec) {
+      // check if player even exists
+      if(peer.playerGameIndex >= this.players.length) {
+        console.log("No player with index " + peer.playerGameIndex);
+        return;
+      }
+
+      var player = this.players[peer.playerGameIndex];
+      var speed = 100;
+
+      // just move the player according to velocity vector
+      player.setVelocity(vec[0] * speed, vec[1] * speed);
+    },
 
 });
 
 function startPhaser() {
   // initialize Phaser game
+  // URL (Arcade Physics world init): https://rexrainbow.github.io/phaser3-rex-notes/docs/site/arcade-world/#configuration
   var config = {
     type: Phaser.AUTO,
     width: '100%',
     height: '100%',
     backgroundColor: '#999999',
     parent: 'phaser-game',
-    scene: [SceneA]
+    scene: [SceneA],
+    physics: {
+        default: 'arcade',
+        arcade: { }
+    }
   }
 
   GAME = new Phaser.Game(config);
+}
+
+
+function startController() {
+
+  function onTouchEvent(e) {
+
+    // grab the right coordinates (distinguish between touches, mouse, etc.)
+    var x,y;
+    if(e.type == 'touchstart' || e.type == 'touchmove' || e.type == 'touchend' || e.type == 'touchcancel'){
+        var touch = e.originalEvent.touches[0] || e.originalEvent.changedTouches[0];
+        x = touch.pageX;
+        y = touch.pageY;
+
+        // prevent default behaviour + bubbling from touch into mouse events
+        e.preventDefault();
+        e.stopPropagation();
+    } else if (e.type == 'mousedown' || e.type == 'mouseup' || e.type == 'mousemove' || e.type == 'mouseover'|| e.type=='mouseout' || e.type=='mouseenter' || e.type=='mouseleave') {
+        x = e.clientX;
+        y = e.clientY;
+    }
+
+    // get center of screen
+    var w  = document.documentElement.clientWidth, 
+        h  = document.documentElement.clientHeight;
+    var cX = 0.5*w, 
+        cY = 0.5*h;
+
+    // get vector between position and center, normalize it
+    var length = Math.sqrt((x-cX)*(x-cX) + (y-cY)*(y-cY))
+    var vector = [(x - cX)/length, (y - cY)/length];
+
+    // send this vector across the network
+    var message = { 'type': 'move', 'vec': vector }
+    peers[0].send( JSON.stringify(message) );
+
+    // debug log
+    console.log("MY TOUCH POSITION IS: ", vector);
+  }
+
+  // add touch/mouse event listeners
+  document.addEventListener('mousedown', onTouchEvent);
+  document.addEventListener('mousemove', onTouchEvent);
+
+  document.addEventListener('touchstart', onTouchEvent);
+  document.addEventListener('touchmove', onTouchEvent);
 }

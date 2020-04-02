@@ -253,20 +253,28 @@ function initializeNetwork() {
       // parse the message
       data = JSON.parse(data);
 
+      // grab reference to game scene
+      var gm = null;
+      if(GAME != null) {
+        gm = GAME.scene.keys.sceneA;
+      }
+
       if(data.type == 'msg') {
         // add message to the message stream
         document.getElementById('messageStream').innerHTML += "<p>" + data.value + "</p>";
       }
 
       if(peer.isConnected) {
+        var dynInt = document.getElementById('dynamicInterface');
+
         // player has requested a MOVE
         if(data.type == 'move') {
-          GAME.scene.keys.sceneA.updatePlayer(peer, data.vec);
+          gm.updatePlayer(peer, data.vec);
         }
 
         // player has requested to BUY an ingredient
         if(data.type == 'buy') {
-          GAME.scene.keys.sceneA.buyAction(peer);
+          gm.buyAction(peer);
         }
 
         // player is at an INGREDIENT location (for the first time; overlapEnter)
@@ -276,10 +284,10 @@ function initializeNetwork() {
           // create the button
           var button = document.createElement("button");
           button.classList.add('buyButton');
-          button.innerHTML = "<span>Buy</span><div class='ingSprite ing" + data.ing + "'></div><span>for " + data.price + " euros!</span>";
+          button.innerHTML = "<span>Buy</span><div class='ingSprite' style='background-position:-" + (data.ing*32) + "px 0;'></div><span>for " + data.price + "</span><div class='ingMoney'></div>";
 
           // append to dynamic interface
-          document.getElementById('dynamicInterface').appendChild(button);
+          dynInt.appendChild(button);
 
           // add event handler
           // when we click this button ...
@@ -295,7 +303,67 @@ function initializeNetwork() {
 
         // player has moved away from an INGREDIENT location (overlapExit)
         if(data.type == 'ing-end') {
-          document.getElementById('dynamicInterface').innerHTML = '';
+          dynInt.innerHTML = '';
+        }
+
+        // player is at a TABLE location
+        if(data.type == 'table') {
+          dynInt.innerHTML = '<p>You are at a table.</p>';
+
+          // content of the table
+          var tableContent = data.content;
+
+          // contents of your backpack
+          var backpackContent = data.backpack;
+
+          // display our options with nice buttons
+
+          if(tableContent >= 0) {
+            // PICK UP current content
+            var btn1 = document.createElement("button");
+            btn1.classList.add('buyButton');
+            btn1.innerHTML = "<span>Pick up</span><div class='ingSprite' style='background-position:-" + (tableContent*32) + "px 0;'></div><span>from the table</span>";
+            dynInt.appendChild(btn1);
+            btn1.addEventListener ("click", function() {
+              // ask computer to pick up this ingredient
+              var msg = { 'type': 'table-pickup' }
+              peer.send( JSON.stringify(msg) );
+
+              dynInt.innerHTML = '';
+            });
+          }
+
+          // DROP something from current backpack
+          for(var i = 0; i < backpackContent.length; i++) {
+            // it's very important we copy the current ingredient here
+            // otherwise, at the time the listener below is executed, it would pick the last known value of "i" instead (which would be 5)
+            var curIng = backpackContent[i];
+
+            var btn = document.createElement("button");
+            btn.classList.add('buyButton');
+            btn.innerHTML = "<span>Drop</span><div class='ingSprite' style='background-position:-" + (curIng*32) + "px 0;'></div><span>on the table</span>";
+            dynInt.appendChild(btn);
+            
+            // tell computer to drop this ingredient
+            btn.addEventListener ("click", function() {
+              var msg = { 'type': 'table-drop', 'ing': curIng };
+              peer.send( JSON.stringify(msg) );
+
+              dynInt.innerHTML = '';
+            });
+          } 
+        }
+
+        if(data.type == 'table-pickup') {
+          gm.pickupIngredient(peer);
+        }
+
+        if(data.type == 'table-drop') {
+          gm.dropIngredient(peer, data.ing);
+        }
+
+        if(data.type == 'table-end') {
+          dynInt.innerHTML = '';
         }
       }
     })
@@ -303,7 +371,7 @@ function initializeNetwork() {
 
   function startController() {
     // remove/hide status container
-    status.style.display = 'none';
+    document.getElementById('status-container').style.display = 'none';
 
     // remove message stream
     document.getElementById('messageStream').style.display = 'none';
@@ -424,10 +492,12 @@ var SceneA = new Phaser.Class({
 
        // images
        this.load.image('table', 'assets/table.png');
+       this.load.image('money', 'assets/moneyIcon.png');
 
        // spritesheets
        this.load.spritesheet('dude', 'assets/playerCharacter.png', { frameWidth: 11, frameHeight: 16 });
        this.load.spritesheet('ingredients', 'assets/ingredientIcons.png', { frameWidth: 8, frameHeight: 8 });
+
     },
 
     create: function() {
@@ -450,7 +520,11 @@ var SceneA = new Phaser.Class({
       this.money = 100;
 
       styleConfig.fontSize = 24;
-      this.moneyText = this.add.text(10, 100, 'M', styleConfig);
+      var moneySprite = this.add.sprite(30, 100, 'money');
+      moneySprite.setScale(4, 4)
+
+      this.moneyText = this.add.text(50, 100, 'M', styleConfig);
+      this.moneyText.setOrigin(0, 0.5);
 
       this.updateMoney(0);
 
@@ -520,9 +594,11 @@ var SceneA = new Phaser.Class({
         ing.displayWidth = ing.displayHeight = 32;
         ing.setSize(32,32).refreshBody();
 
+        var baseIngredients = [1, 2, 4, 8, 16];
+
         // set some properties (randomly for now) => ingredient type and price
-        ing.myNum = Math.floor(Math.random() * 5);
-        ing.price = Math.floor(Math.random() * 5);
+        ing.myNum = baseIngredients[Math.floor(Math.random() * 5)];
+        ing.price = Math.floor(Math.random() * 5) + 1;
 
         // do NOT use .frame as a property!
         ing.setFrame(ing.myNum);
@@ -537,19 +613,175 @@ var SceneA = new Phaser.Class({
       var numTables = 5;
 
       for(var i = 0; i < numTables; i++) {
-        // TO DO: Eventually, switch to a grid system and more unified placement
+        // TO DO: Eventually, switch to a grid system and more unified/structured placement
         var margin = 50
         var randX = Phaser.Math.Between(margin, this.canvas.width - margin), 
             randY = Phaser.Math.Between(margin, this.canvas.height - margin);
 
-        var ing = this.tableBodies.create(randX, randY, 'table');
+        var table = this.tableBodies.create(randX, randY, 'table');
 
-        ing.displayWidth = ing.displayHeight = 32;
-        ing.setSize(32,32).refreshBody();
+        table.displayWidth = table.displayHeight = 32;
+        table.setSize(32,32).refreshBody();
+
+        // initialize tables empty
+        // a table can only contain ONE type of thing => if you add more ingredients, they try to combine into a pizza
+        table.myContent = -1;
+
+        // create sprite that will show whatever the table contains
+        // TO DO: in the real game, tables would be initialized as empty
+        table.myContentSprite = this.add.sprite(table.x, table.y - table.displayHeight, 'ingredients');
+        table.myContentSprite.setScale(4,4);
+        table.myContentSprite.setVisible(false);
+        //table.myContentSprite.setFrame(table.myContent);
+
+        // animate this sprite (just softly go up and down, repeat infinitely)
+        var tween = this.tweens.add({
+            targets: table.myContentSprite,
+            y: { from: table.myContentSprite.y, to: table.myContentSprite.y - 16 },
+            ease: 'Linear',       // 'Cubic', 'Elastic', 'Bounce', 'Back'
+            duration: 1000,
+            repeat: -1,
+            yoyo: true
+        });
       }
 
       // make player and tables collide
-      this.physics.add.collider(this.playerBodies, this.tableBodies);
+      this.physics.add.collider(this.playerBodies, this.tableBodies, this.playerAtTable, null, this);
+    },
+
+    playerAtTable(player, table) {
+      // if this player is already using this table, ignore the rest of this
+      if(player.currentTable != null) {
+        return;
+      }
+
+      // if we just entered the collision, register the table and send a message
+      player.currentTable = table;
+      
+      this.sendTableMessage(player, table);
+    },
+
+    sendTableMessage(player, table) {
+      var msg = { 'type': 'table', 'content': table.myContent, 'backpack': player.myIngredients };
+      player.myPeer.send( JSON.stringify(msg) );
+    },
+
+    pickupIngredient(peer) {
+      // grab player and ingredient type on our current table
+      var player = this.players[peer.playerGameIndex];
+
+      if(player.currentTable == null) {
+        console.log("Error: tried to pick up from non-existent table");
+        return;
+      }
+
+      var ingredientType = player.currentTable.myContent;
+
+      if(ingredientType < 0) {
+        console.log("Error: tried to pick up ingredient that wasn't there");
+        return;
+      }
+
+      // update our backpack
+      var result = this.updateIngredient(peer, ingredientType, 1);
+
+      if(!result) {
+        console.log("Error: no space in backpack to pick up ingredient from table");
+        return;
+      }
+
+      // update the table
+      player.currentTable.myContent = -1;
+      player.currentTable.myContentSprite.setVisible(false);
+
+      // send response back (simply an UPDATE on the table status)
+      this.sendTableMessage(player, player.currentTable);
+    },
+
+    convertToBinary(num) {
+      var binary = [];
+      while(num > 0) {
+        binary.push( (num % 2) );
+        num = Math.floor(num / 2);
+      }
+
+      return binary;
+    },
+
+    decomposeIngredient(oldIng) {
+      // this array will contain the COMBINATION/MIX of ingredients
+      var ingArr = [0,0,0,0,0];
+
+      // if this is an "empty" ingredient, return an empty array (how fitting)
+      // (this is how combinations start: one empty table, one ingredient from the player)
+      if(oldIng < 0) {
+        return ingArr;
+      }
+
+      // now break the oldIngredient down to binary code
+      var bin = this.convertToBinary(oldIng);
+
+      // copy binary to ingredient array (leaving non-existent values to zero)
+      for(var i = 0; i < bin.length; i++) {
+        ingArr[i] = bin[i];
+      }
+
+      return ingArr;
+    },
+
+    combineIngredients(oldIng, newIng) {
+      // first, decompose both ingredients
+      var oldMix = this.decomposeIngredient(oldIng);
+      var newMix = this.decomposeIngredient(newIng);
+
+      // now combine them, capping values at 0 or 1
+      // simply calculate the real value as we do it
+      var finalMix = [0,0,0,0,0];
+      var finalIng = 0;
+      for(var i = 0; i < oldMix.length; i++) {
+        finalMix[i] = Math.max(oldMix[i], newMix[i]);
+
+        if(finalMix[i] == 1) {
+          finalIng += Math.pow(2, i);
+        }
+      }
+
+      // TO DO: if there's no dough, don't allow this combination
+      var doChecksHere = false
+      if(doChecksHere) {
+        console.log("Error: no dough for combination!");
+        return -1;
+      }
+
+      return finalIng;   
+    },
+
+    dropIngredient(peer, ing) {
+      // Basic error checks
+      var player = this.players[peer.playerGameIndex];
+
+      if(player.currentTable == null) {
+        console.log("Error: tried to drop ingredient on non-existent table");
+        return;
+      }
+
+      // Combine ingredients!
+      var newContent = this.combineIngredients(player.currentTable.myContent, ing);
+      if(newContent == -1) {
+        console.log("Error: invalid combination of ingredients!");
+        return;
+      }
+
+      // update the table (content + sprite)
+      player.currentTable.myContent = newContent;
+      player.currentTable.myContentSprite.setVisible(true);
+      player.currentTable.myContentSprite.setFrame(newContent);
+
+      // update player backpack
+      this.updateIngredient(peer, ing, -1);
+
+      // send response back (an UPDATE on table/backpack status)
+      this.sendTableMessage(player, player.currentTable);
     },
 
     playerAtIngredient: function(player, ingLoc) {
@@ -592,7 +824,7 @@ var SceneA = new Phaser.Class({
       }
 
       this.money += dm;
-      this.moneyText.text = 'Money: ' + this.money;
+      this.moneyText.text = this.money;
 
       return true;
     },
@@ -600,27 +832,37 @@ var SceneA = new Phaser.Class({
     updateIngredient: function(peer, ing, val) {
       // update actual value
       var player = this.players[peer.playerGameIndex];
-      player.myIngredients[ing] += val;
-
-      // write ingredients out as a (flat) list
-      var listIng = [];
-      for(var i = 0; i < player.myIngredients.length; i++) {
-        for(var a = 0; a < player.myIngredients[i]; a++) {
-          listIng.push(i);
-        }
-      }
 
       // check if we have space for this ingredient; if not, repulse it
-      if(listIng.length > player.backpackSize) {
+      if((player.myIngredients.length+val) > player.backpackSize) {
         return false;
+      }
+
+      if(val > 0) {
+        for(var i = 0; i < val; i++) {
+          player.myIngredients.push(ing);
+        }
+      } else {
+        // go through ingredients (in reverse order)
+        // remove matching values until we've removed enough of them
+        for(var i = (player.myIngredients.length-1); i >= 0; i--) {
+          if(player.myIngredients[i] == ing) {
+            player.myIngredients.splice(i, 1);
+            val++;
+          }
+
+          if(val >= 0) {
+            break;
+          }
+        }
       }
 
       // update visual representation
       for(var i = 0; i < player.backpackSize; i++) {
         // if something is here, show it (and set to right frame)
-        if(i < listIng.length) {
+        if(i < player.myIngredients.length) {
           player.backpackSprites[i].setVisible(true);
-          player.backpackSprites[i].setFrame(listIng[i]);
+          player.backpackSprites[i].setFrame(player.myIngredients[i]);
         
         // otherwise, hide it
         } else {
@@ -629,7 +871,7 @@ var SceneA = new Phaser.Class({
       }
 
       // remember how much of our backpack is filled
-      player.backpackSizeFilled = listIng.length;
+      player.backpackSizeFilled = player.myIngredients.length;
 
       // yes, we were succesful!
       return true;
@@ -656,7 +898,8 @@ var SceneA = new Phaser.Class({
 
         // set backpack above the players
         var targetY = p.y - 0.5*p.displayHeight - 16;
-        var spriteWidth = 32;
+        var margin = 4;
+        var spriteWidth = 32 + margin;
         for(var b = 0; b < p.backpackSprites.length; b++) {
           var s = p.backpackSprites[b];
 
@@ -677,6 +920,19 @@ var SceneA = new Phaser.Class({
 
             // send message over peer
             var msg = { 'type':'ing-end' }
+            p.myPeer.send( JSON.stringify(msg) );
+          }
+        }
+
+        // check if we've STOPPED colliding with a table
+        // if we have a table saved, but we're not colliding with anything, we just EXITED the collision
+        if(p.currentTable != null) {
+          if(!this.checkOverlap(p, p.currentTable)) {
+            // reset variables
+            p.currentTable = null
+
+            // send message over peer
+            var msg = { 'type': 'table-end' }
             p.myPeer.send( JSON.stringify(msg) );
           }
         }
@@ -728,7 +984,9 @@ var SceneA = new Phaser.Class({
       //
       newPlayer.currentIngredient = null;
       newPlayer.currentIngLocation = null;
-      newPlayer.myIngredients = [0,0,0,0,0];
+      newPlayer.myIngredients = [];
+
+      newPlayer.currentTable = null;
 
       //
       // ingredients/backpack container
@@ -808,7 +1066,7 @@ function startPhaser() {
     physics: {
         default: 'arcade',
         arcade: { 
-          debug: true,
+          debug: false,
         }
     },
     pixelArt: true,

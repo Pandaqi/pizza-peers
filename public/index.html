@@ -101,29 +101,27 @@
         image-rendering: pixelated;
         image-rendering: -moz-crisp-edges;
         image-rendering: crisp-edges;
+
+        margin:10px;
       }
 
-      /* now, each ingredient simply has a unique class with its unique offset */
-      .ing0 {
-        background-position: 0 0;
+      .ingMoney {
+        background: url("assets/moneyIcon.png") no-repeat;
+
+        width: 32px;
+        height: 32px;
+        display:inline-block;
+        background-size: cover;
+
+        image-rendering: pixelated;
+        image-rendering: -moz-crisp-edges;
+        image-rendering: crisp-edges;
+
+        margin:10px;
       }
 
-      .ing1 {
-        background-position: -32px 0;
-      }
-
-      .ing2 {
-        background-position: -64px 0;
-      }
-
-      .ing3 {
-        background-position: -96px 0;
-      }
-
-      .ing4 {
-        background-position: -128px 0;
-      }
-
+      /* now, each ingredient simply gets a proper backgruond-position in the code */
+      /* something of the form: -??px 0; */
       .buyButton {
         display: flex;
         align-content: center;
@@ -135,7 +133,7 @@
   <body>
     <!-- ALTERNATIVE LIBRARY FOR WEBSOCKETS: https://github.com/websockets/ws -->
 
-    <main>
+    <main id="status-container">
       <div id="status"></div>
     </main>
 

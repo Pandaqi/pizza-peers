@@ -14,6 +14,9 @@ var connection;
 // global variable that holds all our peers (will be set to its actual values, once players have created/joined a game)
 var peers = [];
 
+// global variable to make debugging on computer easier
+var mouseDown = false;
+
 function initializeNetwork() {
   // if user is running mozilla then use it's built-in WebSocket
   window.WebSocket = window.WebSocket || window.MozWebSocket;
@@ -272,7 +275,8 @@ function initializeNetwork() {
 
           // create the button
           var button = document.createElement("button");
-          button.innerHTML = "Buy " + ingredients[data.ing] + " for " + data.price + " euros!";
+          button.classList.add('buyButton');
+          button.innerHTML = "<span>Buy</span><div class='ingSprite ing" + data.ing + "'></div><span>for " + data.price + " euros!</span>";
 
           // append to dynamic interface
           document.getElementById('dynamicInterface').appendChild(button);
@@ -310,7 +314,13 @@ function initializeNetwork() {
     // add touch/mouse event listeners
     var gameDiv = document.getElementById('phaser-game');
     
+    gameDiv.addEventListener('mousedown', function(ev) { mouseDown = true; });
     gameDiv.addEventListener('mousemove', onTouchEvent);
+    gameDiv.addEventListener('mouseup', function(ev) { 
+      mouseDown = false; 
+      var msg = { 'type': 'move', 'vec': [0,0] };
+      peers[0].send( JSON.stringify(msg) );
+    });
 
     gameDiv.addEventListener('touchstart', onTouchEvent);
     gameDiv.addEventListener('touchmove', onTouchEvent);
@@ -346,13 +356,21 @@ function initializeNetwork() {
         e.stopPropagation();
 
     } else if (e.type == 'mousedown' || e.type == 'mouseup' || e.type == 'mousemove' || e.type == 'mouseover' || e.type=='mouseout' || e.type=='mouseenter' || e.type=='mouseleave') {
+        
+      if(e.type == 'mousemove') {
         x = e.clientX;
         y = e.clientY;
+      }
+    }
+
+    // do NOT register mouse moves as input, unless we're holding the mouse button down
+    if(e.type == 'mousemove' && !mouseDown) {
+      return;
     }
 
     // if the interaction has ENDED, reset vector so player becomes static
     // don't do anything else
-    if(e.type == 'touchend' || e.type == 'touchcancel' || e.type == 'mouseout' || e.type == 'mouseleave') {
+    if((e.type == 'touchend' || e.type == 'touchcancel' || e.type == 'mouseout' || e.type == 'mouseleave' || e.type == 'mouseup')) {
       console.log("TOUCH ENDDDD");
       var msg = { 'type': 'move', 'vec': [0,0] };
       peers[0].send( JSON.stringify(msg) );
@@ -404,7 +422,12 @@ var SceneA = new Phaser.Class({
        this.load.crossOrigin = "Anonymous"; // to solve CORS bullshit
        this.canvas = this.sys.game.canvas;
 
-       this.load.spritesheet('dude', 'assets/playerCharacter.png', { frameWidth: 64, frameHeight: 64 });
+       // images
+       this.load.image('table', 'assets/table.png');
+
+       // spritesheets
+       this.load.spritesheet('dude', 'assets/playerCharacter.png', { frameWidth: 11, frameHeight: 16 });
+       this.load.spritesheet('ingredients', 'assets/ingredientIcons.png', { frameWidth: 8, frameHeight: 8 });
     },
 
     create: function() {
@@ -412,7 +435,7 @@ var SceneA = new Phaser.Class({
       // NO, for now keep it simple, it's top left
       var roomText = this.add.text(10, 10, 'Room: ' + connection.room);
       var styleConfig = {
-        fontFamily: '"Roboto Condensed"',
+        fontFamily: '"VT323"',
         align: 'right',
         color: '#000000',
         fontSize: 64
@@ -422,16 +445,14 @@ var SceneA = new Phaser.Class({
 
       //
       // add variables for general counters (money, ingredients, etc.)
-      // also create their text fields
+      // also create their text fields and initialize their values
+      //
+      this.money = 100;
 
-      this.money = 0;
-      this.ingredients = [0,0,0,0,0];
-
-      this.moneyText = this.add.text(10, 100, 'M');
-      this.ingredientText = this.add.text(10, 150, 'I');
+      styleConfig.fontSize = 24;
+      this.moneyText = this.add.text(10, 100, 'M', styleConfig);
 
       this.updateMoney(0);
-      this.updateIngredient(0, 0);
 
       //
       // add boundaries at screen edge
@@ -441,10 +462,10 @@ var SceneA = new Phaser.Class({
       this.boundBodies = this.physics.add.staticGroup();
 
       var bounds = [
-        [0, 0.5*this.canvas.height,                 boundThickness, this.canvas.height],
-        [0.5*this.canvas.width, 0,                  this.canvas.width, boundThickness ],
-        [this.canvas.width, 0.5*this.canvas.height, boundThickness, this.canvas.height],
-        [0.5*this.canvas.width, this.canvas.height, this.canvas.width, boundThickness]
+        [-0.5*boundThickness, 0.5*this.canvas.height,                    boundThickness, this.canvas.height],
+        [0.5*this.canvas.width, -0.5*boundThickness,                     this.canvas.width, boundThickness ],
+        [this.canvas.width + 0.5*boundThickness, 0.5*this.canvas.height, boundThickness, this.canvas.height],
+        [0.5*this.canvas.width, this.canvas.height + 0.5*boundThickness, this.canvas.width, boundThickness]
       ]
 
       for(var i = 0; i < 4; i++) {
@@ -468,6 +489,14 @@ var SceneA = new Phaser.Class({
       //
       // preload animations
       //
+      // TO DO: Create proper idle animation (now it's just static)
+      this.anims.create({
+        key: 'idle',
+        frames: this.anims.generateFrameNumbers('dude', { start: 0, end: 0 }),
+        frameRate: 10,
+        repeat: -1
+      })
+
       this.anims.create({
             key: 'run',
             frames: this.anims.generateFrameNumbers('dude', { start: 0, end: 2 }),
@@ -486,14 +515,41 @@ var SceneA = new Phaser.Class({
         var randX = Phaser.Math.Between(margin, this.canvas.width - margin), 
             randY = Phaser.Math.Between(margin, this.canvas.height - margin);
 
-        var ing = this.ingredientBodies.create(randX, randY, 'ingredientLocation');
+        var ing = this.ingredientBodies.create(randX, randY, 'ingredients');
+
+        ing.displayWidth = ing.displayHeight = 32;
+        ing.setSize(32,32).refreshBody();
 
         // set some properties (randomly for now) => ingredient type and price
         ing.myNum = Math.floor(Math.random() * 5);
         ing.price = Math.floor(Math.random() * 5);
+
+        // do NOT use .frame as a property!
+        ing.setFrame(ing.myNum);
       }
 
       this.physics.add.overlap(this.playerBodies, this.ingredientBodies, this.playerAtIngredient, null, this);
+
+      //
+      // create some tables for storage/cutting/combining
+      //
+      this.tableBodies = this.physics.add.staticGroup();
+      var numTables = 5;
+
+      for(var i = 0; i < numTables; i++) {
+        // TO DO: Eventually, switch to a grid system and more unified placement
+        var margin = 50
+        var randX = Phaser.Math.Between(margin, this.canvas.width - margin), 
+            randY = Phaser.Math.Between(margin, this.canvas.height - margin);
+
+        var ing = this.tableBodies.create(randX, randY, 'table');
+
+        ing.displayWidth = ing.displayHeight = 32;
+        ing.setSize(32,32).refreshBody();
+      }
+
+      // make player and tables collide
+      this.physics.add.collider(this.playerBodies, this.tableBodies);
     },
 
     playerAtIngredient: function(player, ingLoc) {
@@ -510,22 +566,75 @@ var SceneA = new Phaser.Class({
     buyAction: function(peer) {
       var buyInfo = this.players[peer.playerGameIndex].currentIngredient;
 
-      // subtract money (price for buying)
-      this.updateMoney(-buyInfo.price);
+      if(buyInfo == null || buyInfo == undefined) {
+        console.log("Error: trying to buy an ingredient while not at a store");
+        return;
+      }
 
-      // add ingredient(s)
-      this.updateIngredient(buyInfo.ing, 1);
+      // add ingredient(s) to the player
+      var result = this.updateIngredient(peer, buyInfo.ing, 1);
+
+      // if the result is false, it means we don't have the space for this ingredient
+      if(!result) {
+        console.log("Error: trying to buy an ingredient you don't have space for (in your backpack");
+        return
+      }
+
+      // subtract money (price for buying)
+      var result = this.updateMoney(-buyInfo.price);
     },
 
     updateMoney: function(dm) {
-      this.money += dm;
+      // if we don't have enough money for this, repulse the action!
+      if( (this.money + dm) < 0) {
+        console.log("Error: trying to spend money you don't have");
+        return false;
+      }
 
+      this.money += dm;
       this.moneyText.text = 'Money: ' + this.money;
+
+      return true;
     },
 
-    updateIngredient: function(ing, val) {
-      this.ingredients[ing] += val;
+    updateIngredient: function(peer, ing, val) {
+      // update actual value
+      var player = this.players[peer.playerGameIndex];
+      player.myIngredients[ing] += val;
 
+      // write ingredients out as a (flat) list
+      var listIng = [];
+      for(var i = 0; i < player.myIngredients.length; i++) {
+        for(var a = 0; a < player.myIngredients[i]; a++) {
+          listIng.push(i);
+        }
+      }
+
+      // check if we have space for this ingredient; if not, repulse it
+      if(listIng.length > player.backpackSize) {
+        return false;
+      }
+
+      // update visual representation
+      for(var i = 0; i < player.backpackSize; i++) {
+        // if something is here, show it (and set to right frame)
+        if(i < listIng.length) {
+          player.backpackSprites[i].setVisible(true);
+          player.backpackSprites[i].setFrame(listIng[i]);
+        
+        // otherwise, hide it
+        } else {
+          player.backpackSprites[i].setVisible(false);
+        }
+      }
+
+      // remember how much of our backpack is filled
+      player.backpackSizeFilled = listIng.length;
+
+      // yes, we were succesful!
+      return true;
+
+      /* OLD CODE => was used to write out global ingredient counts, but now players have personal backpacks
       var ingredientString = '';
       var ingredients = ['Dough', 'Tomatoes', 'Cheese', 'Spice', 'Vegetables']
       for(var i = 0; i < 5; i++) {
@@ -533,6 +642,7 @@ var SceneA = new Phaser.Class({
       }
 
       this.ingredientText.text = ingredientString;
+      */
     },
 
     update: function(dt) {
@@ -540,9 +650,23 @@ var SceneA = new Phaser.Class({
       for(var i = 0; i < this.players.length; i++) {
         var p = this.players[i];
 
-        // set text above their heads
+        // update their Z value for depth sorting
+        // (we have a very simple Y-sort in this game)
+        p.z = p.y;
+
+        // set backpack above the players
+        var targetY = p.y - 0.5*p.displayHeight - 16;
+        var spriteWidth = 32;
+        for(var b = 0; b < p.backpackSprites.length; b++) {
+          var s = p.backpackSprites[b];
+
+          s.x = p.x - 0.5*p.backpackSizeFilled*spriteWidth + (b+0.5)*spriteWidth;
+          s.y = targetY;
+        }
+
+        // set text below the players 
         p.usernameText.x = p.x;
-        p.usernameText.y = p.y - 0.5*p.displayHeight - 32;
+        p.usernameText.y = p.y + 0.5*p.displayHeight + 12;
 
         // check if we've STOPPED overlapping our ingredient location
         if(p.currentIngLocation != null) {
@@ -579,14 +703,18 @@ var SceneA = new Phaser.Class({
       // create new player (use graphics as base, turn into sprite within player group)
       var newPlayer = this.playerBodies.create(randX, randY, 'dude');
 
+      // scale it up! (both sprite and body)
+      // make sure to maintain aspect ratio (11,16)
+      var desiredHeight = 32;
+      var scaleFactor = (desiredHeight/16);
+
+      newPlayer.setScale(scaleFactor);
+
       // scale it up! => doesn't work, no idea why "this.body.updateFromGameObject()" is not a function
       //newPlayer.setScale(4).refreshBody();
 
       // tint it (for now, to distinguish players)
       newPlayer.tint = color.color;
-
-      // just play the animation, always
-      newPlayer.anims.play('run', true);
 
       // save player in array
       this.players.push(newPlayer);
@@ -600,12 +728,31 @@ var SceneA = new Phaser.Class({
       //
       newPlayer.currentIngredient = null;
       newPlayer.currentIngLocation = null;
+      newPlayer.myIngredients = [0,0,0,0,0];
+
+      //
+      // ingredients/backpack container
+      //
+      newPlayer.backpack = this.add.group();
+      newPlayer.backpack.setOrigin(0.5, 0.5);
+
+      newPlayer.backpackSize = 5;
+      newPlayer.backpackSprites = [];
+      newPlayer.backpackSizeFilled = 0;
+      for(var i = 0; i < newPlayer.backpackSize; i++) {
+        var tempS = newPlayer.backpack.create(i*32, 0, 'ingredients');
+
+        tempS.displayHeight = tempS.displayWidth = 32;
+        tempS.setVisible(false);
+
+        newPlayer.backpackSprites.push(tempS);
+      }
 
       //
       // create text to show player username
       // (and make it a child of player body)
       //
-      var config = {font: "27px Verdana",
+      var config = {font: "24px VT323",
             fontWeight: "bold",
             fill: "#000000"
           };
@@ -626,16 +773,23 @@ var SceneA = new Phaser.Class({
       var speed = 200;
 
       // just move the player according to velocity vector
+      // var curVel = player.velocity
       player.setVelocity(vec[0] * speed, vec[1] * speed);
 
-      // DEBUGGING: Checking if "touchend" (stop moving) event works
+      // if we should stop, play idle animation
       if(vec[0] == 0 && vec[1] == 0) {
-        console.log("RECEIVED A RESET FOR PLAYER " + peer.playerGameIndex);
+        player.anims.play('idle', true);
+
+      // otherwise, play run animation
+      } else {
+        player.anims.play('run', true);
       }
 
-      // flip properly (on the horizontal axis)
-      if(vec[0] != 0) {
-        player.displayWidth = Math.sign(vec[0]) * Math.abs(player.displayWidth);
+      // flip properly (on the horizontal axis) if moving the other way
+      if(vec[0] < 0) {
+        player.flipX = true;
+      } else if(vec[0] > 0) {
+        player.flipX = false;
       }
     },
 
@@ -653,8 +807,11 @@ function startPhaser() {
     scene: [SceneA],
     physics: {
         default: 'arcade',
-        arcade: { }
-    }
+        arcade: { 
+          debug: true,
+        }
+    },
+    pixelArt: true,
   }
 
   GAME = new Phaser.Game(config);

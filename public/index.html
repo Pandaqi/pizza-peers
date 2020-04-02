@@ -10,6 +10,9 @@
     <!-- Manifest for ensuring the website takes up full space and is in landscape mode -->
     <link rel="manifest" href="manifest.json">
 
+    <!-- PIXEL font from Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet"> 
+
     <style>
       html, body {
         margin:0;
@@ -18,6 +21,7 @@
         width:100%;
         height:100%;
         overflow:hidden;
+        font-family: 'VT323', monospace;
       }
 
       main {
@@ -32,6 +36,8 @@
       button, input {
         width: 100%;
         font-size: 16pt;
+        font-family: 'VT323', monospace;
+        box-sizing: border-box;
       }
 
       input[type="text"] {
@@ -71,6 +77,58 @@
         pointer-events: none;
 
         display: none;
+      }
+
+
+      /*
+       * This code handles spritesheets and using them
+       * Anything that has class "ingSprite" will load the ingredient spritesheet
+       * Use a second class (ing0, ing1, ing2) to determine which ingredient (= frame) to show
+      */
+
+
+      .ingSprite {
+        /* load spritesheet once */
+        background: url("assets/ingredientIcons.png") no-repeat;
+
+        /* set size and make sure the background stretches to fill the height completely */
+        width: 32px;
+        height: 32px; 
+        display: inline-block;
+        background-size: cover;
+
+        /* for crisp pixel art */
+        image-rendering: pixelated;
+        image-rendering: -moz-crisp-edges;
+        image-rendering: crisp-edges;
+      }
+
+      /* now, each ingredient simply has a unique class with its unique offset */
+      .ing0 {
+        background-position: 0 0;
+      }
+
+      .ing1 {
+        background-position: -32px 0;
+      }
+
+      .ing2 {
+        background-position: -64px 0;
+      }
+
+      .ing3 {
+        background-position: -96px 0;
+      }
+
+      .ing4 {
+        background-position: -128px 0;
+      }
+
+      .buyButton {
+        display: flex;
+        align-content: center;
+        align-items: center;
+        justify-content: center;
       }
     </style>
   </head>

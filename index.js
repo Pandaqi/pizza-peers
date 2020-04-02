@@ -88,6 +88,11 @@ wsServer.on('request', function(request) {
 			// what is the player username?
 			var usn = message.username
 
+			if(rooms[roomToJoin] == undefined || rooms[roomToJoin] == null) {
+				console.log("Error: someone tried to join nonexistent room (" + roomToJoin + ")");
+				return;
+			}
+
 			// does the username already exist? If so, add random characters to the end until it's unique
 			while(rooms[roomToJoin].players[usn] != undefined) {
 				var randChar = "abcdefghijklmnopqrstuvwxyz0123456789"

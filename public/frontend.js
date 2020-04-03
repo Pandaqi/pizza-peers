@@ -772,7 +772,7 @@ var SceneA = new Phaser.Class({
       //
       // 4) Place some buildings around the map
       //
-      var numBuildings = 15;
+      var numBuildings = 30;
       this.buildingBodies = this.physics.add.staticGroup();
       this.orderAreas = this.physics.add.staticGroup();
       for(var i = 0; i < numBuildings; i++) {
@@ -1379,6 +1379,10 @@ var SceneA = new Phaser.Class({
 
       // remove our order sprite
       b.myOrderSprite.setVisible(false);
+
+      // remove our area
+      b.myArea.setVisible(false);
+      b.myArea.enable = false;
 
       // reset status to none (we have our thing, stop whining about it)
       b.myStatus == 'none';

@@ -281,6 +281,8 @@ function initializeNetwork() {
         if(data.type == 'ing') {
           var ingredients = ['Dough', 'Tomatoes', 'Cheese', 'Spice', 'Vegetables']
 
+          dynInt.innerHTML = '<p>You are at an ingredient store.</p>';
+
           // create the button
           var button = document.createElement("button");
           button.classList.add('buyButton');
@@ -296,8 +298,6 @@ function initializeNetwork() {
             // (the computer should remember the offer it made)
             var msg = { 'type':'buy' }
             peer.send( JSON.stringify(msg) );
-
-            console.log("BUY SOME INGREDIENTSSSS");
           });
         }
 
@@ -354,19 +354,80 @@ function initializeNetwork() {
           } 
         }
 
+        // pick up ingredient from table
         if(data.type == 'table-pickup') {
           gm.pickupIngredient(peer);
         }
 
+        // drop (given) ingredient on table
         if(data.type == 'table-drop') {
           gm.dropIngredient(peer, data.ing);
         }
 
+        // stop standing near table
         if(data.type == 'table-end') {
+          dynInt.innerHTML = '';
+        }
+
+        // player is at an ORDER area
+        if(data.type == 'area') {
+          dynInt.innerhtml = 'You rang the doorbell.';
+
+          // if they are ordering, create a button for that
+          if(data.status == 'ordering') {
+            var btn = document.createElement("button");
+            btn.classList.add('buyButton');
+            btn.innerHTML = "<span>Take their order!</span>";
+            dynInt.appendChild(btn);
+            
+            // tell computer to take the order
+            btn.addEventListener ("click", function() {
+              var msg = { 'type': 'take-order' };
+              peer.send( JSON.stringify(msg) );
+
+              dynInt.innerHTML = '';
+            });
+
+          // if they are waiting on their pizza, create a button to give them their pizza!
+          } else if(data.status == 'waiting') {
+            var btn = document.createElement("button");
+            btn.classList.add('buyButton');
+            btn.innerHTML = "<span>Deliver the pizza!</span>";
+            dynInt.appendChild(btn);
+            
+            // tell computer to deliver the order
+            btn.addEventListener ("click", function() {
+              var msg = { 'type': 'deliver-order' };
+              peer.send( JSON.stringify(msg) );
+
+              dynInt.innerHTML = '';
+            });
+          }
+        }
+
+        // player is at an order area, and has chosen to TAKE the order
+        // (this message is always received on the COMPUTER side)
+        if(data.type == 'take-order') {
+          gm.takeOrder(peer);
+        }
+
+        // player decided to deliver an order
+        if(data.type == 'deliver-order') {
+          gm.deliverOrder(peer);
+        }
+
+        // player LEFT an order area
+        if(data.type == 'area-end') {
           dynInt.innerHTML = '';
         }
       }
     })
+  }
+
+  function mouseUp(ev) {
+    mouseDown = false; 
+    var msg = { 'type': 'move', 'vec': [0,0] };
+    peers[0].send( JSON.stringify(msg) );
   }
 
   function startController() {
@@ -384,11 +445,9 @@ function initializeNetwork() {
     
     gameDiv.addEventListener('mousedown', function(ev) { mouseDown = true; });
     gameDiv.addEventListener('mousemove', onTouchEvent);
-    gameDiv.addEventListener('mouseup', function(ev) { 
-      mouseDown = false; 
-      var msg = { 'type': 'move', 'vec': [0,0] };
-      peers[0].send( JSON.stringify(msg) );
-    });
+    gameDiv.addEventListener('mouseup', mouseUp);
+    gameDiv.addEventListener('mouseout', mouseUp);
+    gameDiv.addEventListener('mouseleave', mouseUp);
 
     gameDiv.addEventListener('touchstart', onTouchEvent);
     gameDiv.addEventListener('touchmove', onTouchEvent);
@@ -491,42 +550,31 @@ var SceneA = new Phaser.Class({
        this.canvas = this.sys.game.canvas;
 
        // images
-       this.load.image('table', 'assets/table.png');
        this.load.image('money', 'assets/moneyIcon.png');
 
        // spritesheets
        this.load.spritesheet('dude', 'assets/playerCharacter.png', { frameWidth: 11, frameHeight: 16 });
        this.load.spritesheet('ingredients', 'assets/ingredientIcons.png', { frameWidth: 8, frameHeight: 8 });
+       this.load.spritesheet('staticAssets', 'assets/table.png', { frameWidth: 8, frameHeight: 8 });
+       this.load.spritesheet('buildings', 'assets/buildings.png', { frameWidth: 8, frameHeight: 8 });
+
+       this.load.spritesheet('orderMark', 'assets/orderMark.png', { frameWidth: 8, frameHeight: 12 });
 
     },
 
     create: function() {
       // add room code at top right
       // NO, for now keep it simple, it's top left
-      var roomText = this.add.text(10, 10, 'Room: ' + connection.room);
+      var roomText = this.add.text(this.canvas.width - 10, this.canvas.height - 10, connection.room);
       var styleConfig = {
         fontFamily: '"VT323"',
         align: 'right',
-        color: '#000000',
-        fontSize: 64
+        color: 'rgba(0,0,0,0.4)',
+        fontSize: 32
       }
 
       roomText.setStyle(styleConfig);
-
-      //
-      // add variables for general counters (money, ingredients, etc.)
-      // also create their text fields and initialize their values
-      //
-      this.money = 100;
-
-      styleConfig.fontSize = 24;
-      var moneySprite = this.add.sprite(30, 100, 'money');
-      moneySprite.setScale(4, 4)
-
-      this.moneyText = this.add.text(50, 100, 'M', styleConfig);
-      this.moneyText.setOrigin(0, 0.5);
-
-      this.updateMoney(0);
+      roomText.setOrigin(1, 1);
 
       //
       // add boundaries at screen edge
@@ -578,50 +626,117 @@ var SceneA = new Phaser.Class({
             repeat: -1
         });
 
+      this.anims.create({
+            key: 'orderJump',
+            frames: this.anims.generateFrameNumbers('orderMark', { start: 0, end: 3 }),
+            frameRate: 10,
+            repeat: -1
+        });
+
       //
-      // create some ingredient locations
+      // generate random city
       //
+      this.tileWidth = 32;
+      this.tileHeight = 32;
+      this.gameWidth = this.canvas.width;
+      this.gameHeight = this.canvas.height;
+
+      this.mapWidth = Math.floor(this.gameWidth / this.tileWidth);
+      this.mapHeight = Math.floor(this.gameHeight / this.tileHeight);
+
+      // 1) Create random map (2D grid) that fills the screen
+      this.map = [];
+      for(var x = 0; x < this.mapWidth; x++) {
+        this.map[x] = [];
+        for(var y = 0; y < this.mapHeight; y++) {
+          var value = 0;
+
+          // create a BORDER around the map
+          // this prevents awkward placement of tables, ingredient locations, etc.
+          if(x == 0 || x == (this.mapWidth - 1)) {
+            value = -1;
+          } else if(y == 0 || y == (this.mapHeight - 1)) {
+            value = -1;
+          }
+
+          this.map[x][y] = value;
+        }
+      }
+
+      //
+      // 2) Add ingredient locations at random
+      //
+      var baseIngredients = [1,2,4,8,16];
+      var numIngLoc = 8;
+
+      // shuffle ingredients (for random distribution)
+      baseIngredients = this.shuffle(baseIngredients);
+
+      // go through all ingredient locations
+      var tempIngLocs = [];
       this.ingredientBodies = this.physics.add.staticGroup();
-      var numIngBodies = 8;
+      for(var i = 0; i < numIngLoc; i++) {
+        // keep looking for new locations until we find an empty spot
+        var x,y
+        do {
+          x = Math.floor(Math.random() * this.mapWidth);
+          y = Math.floor(Math.random() * this.mapHeight);
+        } while( !this.mapCheck(x, y, 5, tempIngLocs) );
 
-      for(var i = 0; i < numIngBodies; i++) {
-        var margin = 50
-        var randX = Phaser.Math.Between(margin, this.canvas.width - margin), 
-            randY = Phaser.Math.Between(margin, this.canvas.height - margin);
+        // 1 MEANS ingredients
+        this.map[x][y] = 1;
 
-        var ing = this.ingredientBodies.create(randX, randY, 'ingredients');
+        // remember this thing, so we can avoid placing stuff next to it in the world generation!
+        tempIngLocs.push({ 'x': x, 'y': y });
 
-        ing.displayWidth = ing.displayHeight = 32;
-        ing.setSize(32,32).refreshBody();
+        // then create the body with the right size, type, price, etc.
+        var ing = this.ingredientBodies.create(x * this.tileWidth, y * this.tileHeight, 'ingredients');
 
-        var baseIngredients = [1, 2, 4, 8, 16];
+        ing.displayWidth = ing.displayHeight = this.tileWidth;
+        ing.setSize(this.tileWidth, this.tileWidth).refreshBody();
 
-        // set some properties (randomly for now) => ingredient type and price
-        ing.myNum = baseIngredients[Math.floor(Math.random() * 5)];
+        // set some properties => ingredient type and price
+        // (modulo wrap the baseIngredients array to get a few duplicates around the map)
+        ing.myNum = baseIngredients[i % (baseIngredients.length)];
         ing.price = Math.floor(Math.random() * 5) + 1;
 
         // do NOT use .frame as a property!
         ing.setFrame(ing.myNum);
-      }
 
+        // create single road piece next to it
+        // (this algorithm creates a road, tries to connect it to an existing road => if it fails, it extends the road as far as it can go (probably the edge of the screen)
+        this.extendRoad(x,y);
+      }
+      
+      // finally, check for overlap between players and ingredients
       this.physics.add.overlap(this.playerBodies, this.ingredientBodies, this.playerAtIngredient, null, this);
 
       //
-      // create some tables for storage/cutting/combining
+      // 3) create some tables for storage/cutting/combining/ baking??
       //
       this.tableBodies = this.physics.add.staticGroup();
-      var numTables = 5;
+      var numTables = 8;
 
       for(var i = 0; i < numTables; i++) {
-        // TO DO: Eventually, switch to a grid system and more unified/structured placement
-        var margin = 50
-        var randX = Phaser.Math.Between(margin, this.canvas.width - margin), 
-            randY = Phaser.Math.Between(margin, this.canvas.height - margin);
+        // keep looking for new locations until we find an empty spot
+        var x,y
+        do {
+          x = Math.floor(Math.random() * this.mapWidth);
+          y = Math.floor(Math.random() * this.mapHeight);
+        } while( !this.mapCheck(x,y, 5, tempIngLocs) );
 
-        var table = this.tableBodies.create(randX, randY, 'table');
+        // 2 MEANS (default) table
+        this.map[x][y] = 2;
 
-        table.displayWidth = table.displayHeight = 32;
-        table.setSize(32,32).refreshBody();
+        // now also consider all tables when checking the map
+        tempIngLocs.push({ 'x': x, 'y': y });
+
+        // create the table body with right size and all
+        var table = this.tableBodies.create(x * this.tileWidth, y * this.tileHeight, 'staticAssets');
+
+        table.displayWidth = table.displayHeight = this.tileWidth;
+        table.setSize(this.tileWidth, this.tileWidth).refreshBody();
+        table.setFrame(1);
 
         // initialize tables empty
         // a table can only contain ONE type of thing => if you add more ingredients, they try to combine into a pizza
@@ -634,6 +749,9 @@ var SceneA = new Phaser.Class({
         table.myContentSprite.setVisible(false);
         //table.myContentSprite.setFrame(table.myContent);
 
+        table.z = table.y;
+        table.myContentSprite.z = table.z;
+
         // animate this sprite (just softly go up and down, repeat infinitely)
         var tween = this.tweens.add({
             targets: table.myContentSprite,
@@ -643,10 +761,355 @@ var SceneA = new Phaser.Class({
             repeat: -1,
             yoyo: true
         });
+
+        // and extend the road
+        this.extendRoad(x,y);
       }
 
       // make player and tables collide
       this.physics.add.collider(this.playerBodies, this.tableBodies, this.playerAtTable, null, this);
+
+      //
+      // 4) Place some buildings around the map
+      //
+      var numBuildings = 15;
+      this.buildingBodies = this.physics.add.staticGroup();
+      this.orderAreas = this.physics.add.staticGroup();
+      for(var i = 0; i < numBuildings; i++) {
+        console.log("Creating building " + i);
+
+        // search for a free (x,y) spot
+        var x,y
+        do {
+          x = Math.floor(Math.random() * this.mapWidth);
+          y = Math.floor(Math.random() * this.mapHeight);
+        } while( this.map[x][y] != 0);
+
+        // now check if there's a road next to us somewhere
+        // if so, set building to the corresponding rotation, place building there, do nothing more!
+        var dirs = [[1,0], [0,1], [-1,0], [0,-1]];
+        var hasRoad = false;
+        var rotation = -1;
+        var freeSpot = -1;
+
+        // evaluate directions in a random order
+        // again, do this REVERSED
+        dirs = this.shuffle(dirs);
+
+        for(var d = 0; d < 4; d++) {
+          var adjVal = this.map[(x - dirs[d][0])][(y - dirs[d][1])];
+
+          // a free spot we find must be saved!
+          if(adjVal == 0) {
+            freeSpot = d;
+
+          // if there's a road here, we already have a connection, stop doing anything
+          } else if(adjVal == 3) {
+            hasRoad = true;
+            freeSpot = d;
+            break;
+          }
+        }
+
+        // if there is no free spot, try again later
+        if(freeSpot < 0) {
+          i--;
+          continue;
+        }
+
+        // rotate towards the free spot we found
+        rotation = freeSpot;
+
+        // convert index to rotation
+        // NOTE: Do this BEFORE we use extendRoad, as that modifies the array (dirs), and arrays are passed by reference.
+        // NOTE 2: Remember we must REVERSE this to face the road
+        var ind = dirs[rotation]
+        if(ind[0] == 1) {
+          rotation = 2;
+        } else if(ind[0] == -1) {
+          rotation = 0;
+        } else if(ind[1] == 1) {
+          rotation = 3;
+        } else {
+          rotation = 1;
+        }
+
+        // if it still doesn't have a road ...
+        if(!hasRoad) {
+          // extend the road (using our customly found direction and rotation)
+          this.extendRoad(x, y, dirs, freeSpot);
+        }
+
+        // 4 MEANS building
+        this.map[x][y] = 4;
+
+        // now create the building body! (with correct frame = rotation)
+        var building = this.buildingBodies.create(x * this.tileWidth, y * this.tileHeight, 'buildings');
+
+        building.displayWidth = building.displayHeight = this.tileWidth;
+        building.setSize(this.tileWidth, this.tileWidth).refreshBody();
+
+        building.setFrame(rotation);
+        building.z = building.y;
+        building.myOrder = null;
+        building.myStatus = 'none';
+
+        // now create a body in front of it that will be used for taking/delivering orders
+        var orderArea = this.orderAreas.create((x - ind[0]) * this.tileWidth, (y - ind[1]) * this.tileHeight, 'staticAssets');
+        orderArea.setFrame(2);
+        orderArea.setVisible(false);
+        orderArea.enable = false;
+
+        orderArea.setScale(4,4);
+
+        orderArea.myBuilding = building;
+        orderArea.z = building.z;
+
+        // connect building with its area
+        building.myArea = orderArea;
+
+        // add order mark
+        var orderMark = this.add.sprite(building.x, building.y - this.tileHeight*1.5, 'orderMark');
+        orderMark.setVisible(false);
+        orderMark.z = building.z;
+        building.myOrderMark = orderMark;
+
+        orderMark.setScale(4,4);
+
+        // add order sprite
+        var orderSprite = this.add.sprite(building.x, building.y - this.tileHeight*1.5, 'ingredients');
+        orderSprite.setVisible(false);
+        orderSprite.setScale(4,4);
+        orderSprite.z = building.z;
+
+        building.myOrderSprite = orderSprite;
+
+        console.log("Done creating building " + i);
+      }
+
+      // make buildings and players collide
+      this.physics.add.collider(this.playerBodies, this.buildingBodies);
+
+      // make players and orderAreas overlap
+      this.physics.add.overlap(this.playerBodies, this.orderAreas, this.playerAtArea, null, this);
+
+      //
+      // Initialize the delivery system!
+      // (create empty queue, place some starting event(s))
+      //
+      this.eventQ = [];
+      this.curOutstandingOrders = 0;
+
+      // let first building place some order
+      this.addEventToQueue('placeOrder', 10, { 'building': this.buildingBodies.getChildren()[0] });
+
+
+      //
+      // add variables for general counters (money, ingredients, etc.)
+      // also create their text fields and initialize their values
+      //
+      this.money = 100;
+
+      styleConfig.fontSize = 24;
+      styleConfig.color = 'rgba(0,0,0,0.8)';
+
+      var moneyX = 30, moneyY = 30
+      var moneySprite = this.add.sprite(moneyX, moneyY, 'money');
+      moneySprite.setScale(4, 4)
+
+      this.moneyText = this.add.text(moneyX + 20, moneyY, 'M', styleConfig);
+      this.moneyText.setOrigin(0, 0.5);
+
+      this.updateMoney(0);
+    },
+
+    addEventToQueue(evType, deltaTime, params) {
+      // adds event at time it should be trigged, including correct properties/parameters
+      var curTime = this.time.now + deltaTime
+      this.eventQ.push({ 'time': curTime, 'type': evType, 'params': params });
+    },
+
+    checkEventQueue(time) {
+      var lastTime = -1;
+
+      // as long as we have events that should have fired within the time frame ...
+      while(lastTime < time) {
+        // update time of last event
+        lastTime = this.eventQ[0].time
+
+        // if we've already exceeded the current timestamp, break
+        if(lastTime > time) {
+          break;
+        }
+
+        // remove first event from queue
+        var ev = this.eventQ.shift();
+
+        // execute the event!
+        this.executeEvent(ev);
+      }
+    },
+
+    executeEvent(ev) {
+      if(ev.type == 'placeOrder') {
+        // Plan the next order event
+        var randTime = Math.random() * 8000 + 5000;
+        var randBuilding = null;
+        do {
+          randBuilding = this.buildingBodies.getChildren()[ Math.floor(Math.random() * this.buildingBodies.getChildren().length ) ];
+        } while(randBuilding.myStatus != 'none');
+
+        this.addEventToQueue('placeOrder', randTime, { 'building': randBuilding });
+
+        // if we already have too many orders, don't create a new one
+        var maxOrders = 6;
+        if(this.curOutstandingOrders >= maxOrders) {
+          return;
+        }
+
+        this.curOutstandingOrders++;
+
+        // Generate a random order
+        var order = [1,0,0,0,0];
+        var orderNumber = 1;
+
+        for(var i = 1; i < 5; i++) {
+          order[i] = Math.round(Math.random());
+
+          if(order[i] == 1) {
+            orderNumber += Math.pow(2, i);
+          }
+          
+        }
+
+        // save order on the building
+        var b = ev.params.building;
+        b.myOrder = orderNumber;
+
+        // remember we're currently ORDERING a pizza (waiting for someone to collect the order)
+        b.myStatus = 'ordering';
+
+        // Activate area in front of building
+        b.myArea.setVisible(true);
+        b.myArea.enable = true;
+
+        // Show a wobbling/jumping exclamation mark over the building
+        b.myOrderMark.setVisible(true);
+        b.myOrderMark.anims.play('orderJump', true);
+      }
+    },
+
+    mapCheck(x, y, radius = -1, checkAgainst = null) {
+      // if no check array was set, simply return whether this entry of the map is 0
+      if(checkAgainst == null) {
+        return (this.map[x][y] == 0);
+      }
+
+      // regardless of what we're doing, if the current value isn't 0, we simply return false
+      if(this.map[x][y] != 0) {
+        return false;
+      }
+
+      // otherwise, go through all locations in the array (which MUST be grid locations, not pixel locations)
+      // and check if their distance is within the radius
+      for(var i = 0; i < checkAgainst.length; i++) {
+        var distance = Math.abs(checkAgainst[i].x - x) + Math.abs(checkAgainst[i].y - y);
+        if(distance <= radius) {
+          return false;
+        }
+      }
+
+      return true;
+    },
+
+    extendRoad(x,y, customDirs = null, customInd = null) {
+      // all 4 directions around (x,y)
+      var dirs = [[1,0], [0,1], [-1,0], [0,-1]];
+
+      // pick one at random + remove it from array
+      dirs = this.shuffle(dirs);
+      var randDir = null;
+      for(var i = 0; i < dirs.length; i++) {
+        if(this.map[ (x - dirs[i][0]) ][ (y - dirs[i][1]) ] == 0) {
+          randDir = dirs.splice(i, 1)[0];
+          break;
+        }
+      }
+
+      // take over the custom dirs (if available)
+      if(customDirs != null) {
+        dirs = customDirs;
+        randDir = customDirs.splice(customInd, 1)[0];
+      }
+
+      // now place a road at the INVERTED position 
+      // (why? because now all remaining directions are possible road directions!)
+
+      // 3 MEANS (default) road
+      var startX = (x - randDir[0]), startY = (y - randDir[1]);
+      this.map[startX][startY] = 3;
+
+      // now try to find a road to connect to in all other directions
+      var path = [];
+      var foundRoad = false;
+      for(var i = 0; i < dirs.length; i++) {
+        var tempX = startX, tempY = startY;
+        var d = dirs[i];
+
+        // reset path and try again
+        path = [];
+
+        // continue searching until we find some obstacle
+        // TO DO/NOTE: This breaches the border of the map (doesn't stop at -1 cell)... but I actually like that
+        do {
+          // check for roads at all neighbours!
+          // but ignore the direction we're coming from
+          var neighDirs = [[1,0], [0,1], [-1,0], [0,-1]];
+          for(var neighDir = 0; neighDir < 4; neighDir++) {
+            var neighbourDirection = neighDirs[neighDir];
+            if(neighbourDirection[0] == -d[0] && neighbourDirection[1] == -d[1]) {
+              continue;
+            }
+
+            if(this.map[tempX + neighbourDirection[0]][tempY + neighbourDirection[1]] == 3) {
+              foundRoad = true;
+              break;
+            }
+          }
+
+          // if we found a road to attach to, hooray!
+          // stop searching altogether
+          if(foundRoad) {
+            break;
+          }
+
+          // otherwise, continue along a straight line
+          tempX += d[0];
+          tempY += d[1];
+
+          path.push({ 'x': tempX, 'y': tempY })
+
+        } while(this.map[tempX][tempY] == 0);
+
+        // if we found a road, stop this whole process
+        if(foundRoad) {
+          break;
+        }
+      }
+
+      // and add the first road back
+      path.unshift({ 'x': startX, 'y': startY });
+
+      // finally, update the map and create the correct sprites
+      for(var i = 0; i < path.length; i++) {
+        var p = path[i];
+        this.map[p.x][p.y] = 3;
+
+        var newRoad = this.add.sprite(p.x * this.tileWidth, p.y * this.tileWidth, 'staticAssets');
+
+        newRoad.setScale(4,4);
+        newRoad.z = -1; // road is on the ground, so always "behind" the res
+      }
     },
 
     playerAtTable(player, table) {
@@ -666,11 +1129,40 @@ var SceneA = new Phaser.Class({
       player.myPeer.send( JSON.stringify(msg) );
     },
 
+    ingameFeedback(initiator, msg, color = "#FF0000") {
+      // create text (place it centred above the initiator, whatever/whomever that is)
+      var x = initiator.x;
+      var y = initiator.y - initiator.displayHeight;
+      var config = {
+        fontFamily: "VT323",
+        fontSize: 24,
+        color: color,
+      };
+      var fbText = this.add.text(x, y, msg, config);
+      fbText.setOrigin(0.5, 0.5);
+
+      // tween it upwards (and fade out)
+      var tween = this.tweens.add({
+            targets: fbText,
+            y: { from: y, to: y - 16 },
+            alpha: { from: 1.0, to: 0.0 },
+            ease: 'Linear',
+            duration: 2000,
+            repeat: 0
+        });
+
+      // remove automatically when done
+      tween.on('complete', function(tween, targets) {
+        fbText.destroy();
+      }, this);
+    },
+
     pickupIngredient(peer) {
       // grab player and ingredient type on our current table
       var player = this.players[peer.playerGameIndex];
 
       if(player.currentTable == null) {
+        this.ingameFeedback(player, 'Not at a table!');
         console.log("Error: tried to pick up from non-existent table");
         return;
       }
@@ -678,7 +1170,9 @@ var SceneA = new Phaser.Class({
       var ingredientType = player.currentTable.myContent;
 
       if(ingredientType < 0) {
+        this.ingameFeedback(player, 'Nothing to pick up!');
         console.log("Error: tried to pick up ingredient that wasn't there");
+        this.sendTableMessage(player, player.currentTable);
         return;
       }
 
@@ -686,7 +1180,9 @@ var SceneA = new Phaser.Class({
       var result = this.updateIngredient(peer, ingredientType, 1);
 
       if(!result) {
+        this.ingameFeedback(player, 'No space in backpack!');
         console.log("Error: no space in backpack to pick up ingredient from table");
+        this.sendTableMessage(player, player.currentTable);
         return;
       }
 
@@ -738,18 +1234,25 @@ var SceneA = new Phaser.Class({
       // simply calculate the real value as we do it
       var finalMix = [0,0,0,0,0];
       var finalIng = 0;
+      var numSlotsFilled = 0;
       for(var i = 0; i < oldMix.length; i++) {
         finalMix[i] = Math.max(oldMix[i], newMix[i]);
+
+        if(finalMix[i] > 0) {
+          numSlotsFilled++;
+        }
 
         if(finalMix[i] == 1) {
           finalIng += Math.pow(2, i);
         }
       }
 
-      // TO DO: if there's no dough, don't allow this combination
-      var doChecksHere = false
-      if(doChecksHere) {
-        console.log("Error: no dough for combination!");
+      // If it's a single ingredient (one slot filled), it's always good
+      // If it has multiple ingredients, we must have dough in it
+      // (No ingredients is never valid, of course)
+      var isValid = (numSlotsFilled == 1 || (numSlotsFilled > 1 && finalMix[0] > 0));
+      if(!isValid) {
+        console.log("Error: empty combination or lack of dough!");
         return -1;
       }
 
@@ -761,6 +1264,7 @@ var SceneA = new Phaser.Class({
       var player = this.players[peer.playerGameIndex];
 
       if(player.currentTable == null) {
+        this.ingameFeedback(player, 'Not at a table!');
         console.log("Error: tried to drop ingredient on non-existent table");
         return;
       }
@@ -768,7 +1272,9 @@ var SceneA = new Phaser.Class({
       // Combine ingredients!
       var newContent = this.combineIngredients(player.currentTable.myContent, ing);
       if(newContent == -1) {
+        this.ingameFeedback(player, 'Can\'t combine ingredients!');
         console.log("Error: invalid combination of ingredients!");
+        this.sendTableMessage(player, player.currentTable);
         return;
       }
 
@@ -784,6 +1290,100 @@ var SceneA = new Phaser.Class({
       this.sendTableMessage(player, player.currentTable);
     },
 
+    playerAtArea: function(player, area) {
+      if(player.currentArea == null) {
+        // if this building does nothing special, we do nothing special
+        if(area.myBuilding.myStatus == 'none') {
+          return;
+        }
+
+        if(area.myBuilding.myStatus == 'waiting') {
+          var weHaveIt = false;
+          for(var i = 0; i < player.myIngredients.length; i++) {
+            if(player.myIngredients[i] == area.myBuilding.myOrder) {
+              // yay, we have the right thing
+              weHaveIt = true;
+            }
+          }
+
+          if(!weHaveIt) {
+            console.log("Error: Nah, you don't have what should be delivered here");
+            return;
+          }
+        }
+
+        // otherwise, send an area message with the building status included
+        var msg = { 'type': 'area', 'status': area.myBuilding.myStatus };
+        player.currentArea = area;
+        player.myPeer.send( JSON.stringify(msg) );
+      }
+    },
+
+    takeOrder: function(peer) {
+      var player = this.players[peer.playerGameIndex];
+
+      // check if all necessary variables are present
+      if(player == undefined || player.currentArea == null) {
+        this.ingameFeedback(player, 'No order to take!');
+        console.log("Error: trying to take an order without being in an area");
+        return;
+      }
+
+      // check if this building is actually ordering
+      if(player.currentArea.myBuilding.myStatus != 'ordering') {
+        this.ingameFeedback(player, 'This building has no order');
+        console.log("Error: no, this building is not ordering a pizza");
+        return;
+      }
+
+      // get order info
+      var b = player.currentArea.myBuilding;
+      var orderInfo = player.currentArea.myBuilding.myOrder;
+
+      // change building state from "ordering" to "waiting"
+      b.myStatus = 'waiting';
+
+      // remove this order from the accumulative total
+      this.curOutstandingOrders--;
+
+      // remove exclamation mark
+      // (TO DO: Stop animation; I don't know how)
+      b.myOrderMark.setVisible(false);
+      // b.myOrderMark.anims.stop();
+
+      // Also change the visual state to match (show the current wanted pizza type)
+      b.myOrderSprite.setVisible(true);
+      b.myOrderSprite.setFrame(b.myOrder);
+    },
+
+    deliverOrder: function(peer) {
+      var player = this.players[peer.playerGameIndex];
+
+      if(player == undefined || player.currentArea == null) {
+        this.ingameFeedback(player, 'No building to deliver to');
+        console.log("Error: no, you are not at an area");
+        return;
+      }
+
+      // get order info
+      var b = player.currentArea.myBuilding;
+      var o = player.currentArea.myBuilding.myOrder;
+
+      // update player backpack
+      this.updateIngredient(peer, o, -1);
+
+      // and GIVE US MONEYEEYEYEYYEYYEEY
+      var randMoney = Math.floor(Math.random() * 20) + 15;
+      this.ingameFeedback(player, randMoney + ' coins!', '#00FF00');
+      this.updateMoney(randMoney);
+
+      // remove our order sprite
+      b.myOrderSprite.setVisible(false);
+
+      // reset status to none (we have our thing, stop whining about it)
+      b.myStatus == 'none';
+    },
+
     playerAtIngredient: function(player, ingLoc) {
       // if our current ingredient is null, update it to reflect our current ingredient spot
       if(player.currentIngredient == null) {
@@ -796,9 +1396,11 @@ var SceneA = new Phaser.Class({
     },
 
     buyAction: function(peer) {
-      var buyInfo = this.players[peer.playerGameIndex].currentIngredient;
+      var player = this.players[peer.playerGameIndex]
+      var buyInfo = player.currentIngredient;
 
       if(buyInfo == null || buyInfo == undefined) {
+        this.ingameFeedback(player, 'Can\'t buy ingredient here!');
         console.log("Error: trying to buy an ingredient while not at a store");
         return;
       }
@@ -808,6 +1410,7 @@ var SceneA = new Phaser.Class({
 
       // if the result is false, it means we don't have the space for this ingredient
       if(!result) {
+        this.ingameFeedback(player, 'No space in backpack!');
         console.log("Error: trying to buy an ingredient you don't have space for (in your backpack");
         return
       }
@@ -819,6 +1422,7 @@ var SceneA = new Phaser.Class({
     updateMoney: function(dm) {
       // if we don't have enough money for this, repulse the action!
       if( (this.money + dm) < 0) {
+        this.ingameFeedback(player, 'Not enough money!');
         console.log("Error: trying to spend money you don't have");
         return false;
       }
@@ -887,7 +1491,11 @@ var SceneA = new Phaser.Class({
       */
     },
 
-    update: function(dt) {
+    update: function(time, dt) {
+      // check the event queue
+      // (which should automatically handle events that should happen)
+      this.checkEventQueue(time);
+
       // go through all players
       for(var i = 0; i < this.players.length; i++) {
         var p = this.players[i];
@@ -933,6 +1541,16 @@ var SceneA = new Phaser.Class({
 
             // send message over peer
             var msg = { 'type': 'table-end' }
+            p.myPeer.send( JSON.stringify(msg) );
+          }
+        }
+
+        // check if we've STOPPED overlapping an area
+        if(p.currentArea != null) {
+          if(!this.checkOverlap(p, p.currentArea)) {
+            p.currentArea = null;
+
+            var msg = { 'type': 'area-end' }
             p.myPeer.send( JSON.stringify(msg) );
           }
         }
@@ -987,6 +1605,8 @@ var SceneA = new Phaser.Class({
       newPlayer.myIngredients = [];
 
       newPlayer.currentTable = null;
+
+      newPlayer.currentArea = null;
 
       //
       // ingredients/backpack container
@@ -1051,6 +1671,17 @@ var SceneA = new Phaser.Class({
       }
     },
 
+    shuffle: function(a) {
+        var j, x, i;
+        for (i = a.length - 1; i > 0; i--) {
+            j = Math.floor(Math.random() * (i + 1));
+            x = a[i];
+            a[i] = a[j];
+            a[j] = x;
+        }
+        return a;
+    }
+
 });
 
 function startPhaser() {
@@ -1070,6 +1701,7 @@ function startPhaser() {
         }
     },
     pixelArt: true,
+    antialias: false,
   }
 
   GAME = new Phaser.Game(config);

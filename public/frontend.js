@@ -551,6 +551,7 @@ var SceneA = new Phaser.Class({
 
        // images
        this.load.image('money', 'assets/moneyIcon.png');
+       this.load.spritesheet('moneyAnim', 'assets/moneyAnim.png', { frameWidth: 8, frameHeight: 8 });
 
        // spritesheets
        this.load.spritesheet('dude', 'assets/playerCharacter.png', { frameWidth: 11, frameHeight: 16 });
@@ -634,6 +635,24 @@ var SceneA = new Phaser.Class({
             repeat: -1
         });
 
+      this.anims.create({
+            key: 'moneyRotate',
+            frames: this.anims.generateFrameNumbers('moneyAnim', { start: 0, end: 5 }),
+            frameRate: 10,
+            repeat: -1
+        });
+
+      // 
+      // initialize texture that will hold all shadows
+      //
+      this.shadowGraphics = this.add.graphics();
+      this.shadowGraphics.depth = 0;
+      this.shadowGraphics.alpha = 0.2;
+
+      // URL: find the right mode to use! (https://photonstorm.github.io/phaser3-docs/Phaser.BlendModes.html)
+      this.shadowGraphics.blendMode = Phaser.BlendModes.DARKEN;
+      this.shadowGraphics.fillStyle(0x000000, 1.0);
+
       //
       // generate random city
       //
@@ -676,7 +695,6 @@ var SceneA = new Phaser.Class({
       baseIngredients = this.shuffle(baseIngredients);
 
       // already initialize building groups (for ingredient locations are also buildings)
-      // TO DO: Make sure we don't place orders on INGREDIENT buildings!
       this.buildingBodies = this.physics.add.staticGroup();
       this.buildingBodiesActual = this.physics.add.staticGroup();
 
@@ -700,7 +718,7 @@ var SceneA = new Phaser.Class({
         // then create the body with the right size, type, price, etc.
         var ing = this.ingredientBodies.create(x * this.tileWidth, y * this.tileHeight, 'ingredients');
 
-        ing.displayWidth = ing.displayHeight = this.tileWidth;
+        ing.displayWidth = ing.displayHeight = this.tileWidth*0.8;
         ing.setSize(this.tileWidth, this.tileWidth).refreshBody();
         ing.id = this.runningID++;
 
@@ -711,6 +729,7 @@ var SceneA = new Phaser.Class({
 
         // do NOT use .frame as a property!
         ing.setFrame(ing.myNum);
+        ing.alpha = 0.75;
 
         // create single road piece next to it
         // (this algorithm creates a road, tries to connect it to an existing road => if it fails, it extends the road as far as it can go (probably the edge of the screen)
@@ -730,6 +749,22 @@ var SceneA = new Phaser.Class({
         // create building
         var b = this.createBuilding(x, y, rotation, type);
         b.myStatus = 'disabled';
+
+        // add rotating money/market sign
+        // also make it go up and down
+        var money = this.add.sprite(b.x, b.y - 1.5*b.displayHeight, 'moneyAnim');
+        money.anims.play('moneyRotate');
+        money.setScale(4,4);
+        money.depth = b.depth;
+
+        var tween = this.tweens.add({
+            targets: money,
+            y: { from: money.y, to: money.y - 8 },
+            ease: 'Linear',       // 'Cubic', 'Elastic', 'Bounce', 'Back'
+            duration: 500,
+            repeat: -1,
+            yoyo: true
+        });
       }
       
       // finally, check for overlap between players and ingredients
@@ -768,7 +803,6 @@ var SceneA = new Phaser.Class({
         table.myContent = -1;
 
         // create sprite that will show whatever the table contains
-        // TO DO: in the real game, tables would be initialized as empty
         table.myContentSprite = this.add.sprite(table.x, table.y - table.displayHeight, 'ingredients');
         table.myContentSprite.setScale(4,4);
         table.myContentSprite.setVisible(false);
@@ -860,16 +894,17 @@ var SceneA = new Phaser.Class({
         // 4 MEANS building
         this.map[x][y] = 4;
 
-        // TO DO: Update type value (4th parameter) to get the right building
-        var building = this.createBuilding(x, y, rotation, 1);
+        // Type (4th parameter) is 5, because this is a default building, and the 5 ingredients (0-4) come before it
+        var building = this.createBuilding(x, y, rotation, 5);
 
         // now create a body in front of it that will be used for taking/delivering orders
         var orderArea = this.orderAreas.create((x - ind[0]) * this.tileWidth, (y - ind[1]) * this.tileHeight, 'staticAssets');
         orderArea.setFrame(2);
+        orderArea.alpha = 0.75;
         orderArea.setVisible(false);
         orderArea.enable = false;
 
-        orderArea.setScale(4,4).refreshBody();
+        orderArea.setScale(3.2, 3.2).refreshBody();
 
         orderArea.myBuilding = building;
         orderArea.depth = -0.5;
@@ -877,8 +912,8 @@ var SceneA = new Phaser.Class({
         // connect building with its area
         building.myArea = orderArea;
 
-        // add order mark
-        var orderMark = this.add.sprite(building.x, building.y - this.tileHeight*2, 'orderMark');
+        // add order mark (sufficiently above the building, so it looks good and clearly visible)
+        var orderMark = this.add.sprite(building.x, building.y - this.tileHeight*2.25, 'orderMark');
         orderMark.setVisible(false);
         orderMark.depth = building.depth;
         building.myOrderMark = orderMark;
@@ -886,7 +921,7 @@ var SceneA = new Phaser.Class({
         orderMark.setScale(4,4);
 
         // add order sprite
-        var orderSprite = this.add.sprite(building.x, building.y - this.tileHeight*2, 'ingredients');
+        var orderSprite = this.add.sprite(building.x, building.y - this.tileHeight*2.25, 'ingredients');
         orderSprite.setVisible(false);
         orderSprite.setScale(4,4);
         orderSprite.depth = building.depth;
@@ -906,6 +941,55 @@ var SceneA = new Phaser.Class({
       this.physics.add.overlap(this.playerBodies, this.orderAreas, this.playerAtArea, null, this);
 
       //
+      // 5) Place some nature/decoration/trees around the world
+      //
+      this.natureBodies = this.physics.add.staticGroup();
+      this.natureBodiesActual = this.physics.add.staticGroup();
+      var numNature = 30;
+      for(var i = 0; i < numNature; i++) {
+        // search for a free (x,y) spot
+        var x,y
+        do {
+          x = Math.floor(Math.random() * this.mapWidth);
+          y = Math.floor(Math.random() * this.mapHeight);
+        } while( this.map[x][y] != 0);
+
+        var nature = this.natureBodies.create(x * this.tileWidth, y * this.tileWidth, 'buildings')
+
+        var frames = [24,25,26,27]; // array with all nature frames; should update this manually
+        var bodies = [true, true, true, false] // also update manually
+        var randFrameIndex = Math.floor(Math.random() * frames.length);
+        nature.setFrame( frames[randFrameIndex] );
+
+        nature.setOrigin(0.5, 1);
+        nature.y += 32*0.5;
+        nature.setScale(4,4).refreshBody();
+
+        // offset nature randomly within its cell
+        nature.y -= Math.random()*0.5*nature.displayHeight;
+        nature.x += (Math.random()-0.5)*(nature.displayWidth*0.1)
+
+        nature.depth = nature.y;
+
+        // if this thing HAS a body, create it
+        if(bodies[randFrameIndex]) {
+          var actualBody = this.natureBodiesActual.create(nature.x, nature.y, null);
+          actualBody.setOrigin(0.5, 1);
+          actualBody.setVisible(false);
+          actualBody.displayWidth = nature.displayWidth;
+          actualBody.displayHeight = nature.displayHeight*0.25;
+          actualBody.refreshBody();
+
+          // also add shadow to the body
+          this.shadowGraphics.fillEllipse(nature.x, nature.y, nature.displayWidth, nature.displayHeight*0.25, 10);
+        }
+      }
+
+      // collide and overlap with player(s)
+      this.physics.add.collider(this.playerBodiesActual, this.natureBodiesActual); 
+      this.physics.add.overlap(this.playerBodies, this.natureBodies, this.playerBehindBuilding, null, this);
+
+      //
       // Initialize the delivery system!
       // (create empty queue, place some starting event(s))
       //
@@ -922,15 +1006,21 @@ var SceneA = new Phaser.Class({
       //
       this.money = 100;
 
-      styleConfig.fontSize = 24;
-      styleConfig.color = 'rgba(0,0,0,0.8)';
+      styleConfig.fontSize = 48;
+      styleConfig.color = '#FFAAFF';
+
+      styleConfig.stroke = '#330033';
+      styleConfig.strokeThickness = 5;
 
       var moneyX = 30, moneyY = 30
-      var moneySprite = this.add.sprite(moneyX, moneyY, 'money');
+      var moneySprite = this.add.sprite(moneyX, moneyY, 'moneyAnim');
       moneySprite.setScale(4, 4)
+      moneySprite.anims.play('moneyRotate');
+      moneySprite.depth = this.canvas.height*2;
 
       this.moneyText = this.add.text(moneyX + 20, moneyY, 'M', styleConfig);
       this.moneyText.setOrigin(0, 0.5);
+      this.moneyText.depth = this.canvas.height * 2;
 
       this.updateMoney(0);
     },
@@ -973,6 +1063,10 @@ var SceneA = new Phaser.Class({
       actualBody.displayWidth = building.displayWidth
       actualBody.displayHeight = (building.displayHeight - 3*4);
       actualBody.refreshBody();
+
+      var offsetX = 5, offsetY = 0;
+      this.shadowGraphics.fillRect(building.x - 0.5*building.displayWidth - offsetX, building.y - actualBody.displayHeight + offsetY, building.displayWidth, actualBody.displayHeight);
+
 
       return building;
     },
@@ -1219,7 +1313,7 @@ var SceneA = new Phaser.Class({
       for(var i = 0; i < this.players.length; i++) {
         // ignore players who do not match table id
         var p = this.players[i];
-        if(p.currentTable.id != table.id) {
+        if(p.currentTable == null || p.currentTable.id != table.id) {
           continue;
         }
 
@@ -1610,6 +1704,10 @@ var SceneA = new Phaser.Class({
         p.x = p.actualBody.x;
         p.y = p.actualBody.y - p.displayHeight + (0.25*0.5)*p.displayHeight;
 
+        // match shadow position
+        p.shadowSprite.x = p.x;
+        p.shadowSprite.y = p.y;
+
         // update their Z value for depth sorting
         // (we have a very simple Y-sort in this game)
         p.depth = p.y;
@@ -1623,6 +1721,8 @@ var SceneA = new Phaser.Class({
 
           s.x = p.x - 0.5*p.backpackSizeFilled*spriteWidth + (b+0.5)*spriteWidth;
           s.y = targetY;
+
+          s.depth = p.y;
         }
 
         // set text below the players 
@@ -1678,7 +1778,7 @@ var SceneA = new Phaser.Class({
               obj.alpha = 1.0;
               p.obstructingObjects.splice(o, 1);
             } else {
-              obj.alpha = 0.2;
+              obj.alpha = 0.6;
             }
           }
         }
@@ -1730,7 +1830,15 @@ var SceneA = new Phaser.Class({
       //newPlayer.setScale(4).refreshBody();
 
       // tint it (for now, to distinguish players)
-      newPlayer.tint = color.color;
+      //newPlayer.tint = color.color;
+
+      // add shadow
+      var shadowSprite = this.add.sprite(newPlayer.x, newPlayer.y, 'staticAssets');
+      shadowSprite.setFrame(3);
+      shadowSprite.setScale(4,4);
+      shadowSprite.alpha = 0.2;
+      shadowSprite.depth = 0;
+      newPlayer.shadowSprite = shadowSprite;
 
       // save player in array
       this.players.push(newPlayer);
@@ -1758,7 +1866,7 @@ var SceneA = new Phaser.Class({
       newPlayer.backpack = this.add.group();
       newPlayer.backpack.setOrigin(0.5, 0.5);
 
-      newPlayer.backpackSize = 5;
+      newPlayer.backpackSize = 3;
       newPlayer.backpackSprites = [];
       newPlayer.backpackSizeFilled = 0;
       for(var i = 0; i < newPlayer.backpackSize; i++) {
@@ -1792,7 +1900,7 @@ var SceneA = new Phaser.Class({
       }
 
       var player = this.players[peer.playerGameIndex];
-      var speed = 200;
+      var speed = 120;
 
       // just move the player according to velocity vector
       // var curVel = player.velocity
@@ -1841,7 +1949,7 @@ function startPhaser() {
     physics: {
         default: 'arcade',
         arcade: { 
-          debug: true,
+          debug: false,
         }
     },
     pixelArt: true,

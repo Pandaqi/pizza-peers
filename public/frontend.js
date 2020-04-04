@@ -556,7 +556,7 @@ var SceneA = new Phaser.Class({
        this.load.spritesheet('dude', 'assets/playerCharacter.png', { frameWidth: 11, frameHeight: 16 });
        this.load.spritesheet('ingredients', 'assets/ingredientIcons.png', { frameWidth: 8, frameHeight: 8 });
        this.load.spritesheet('staticAssets', 'assets/table.png', { frameWidth: 8, frameHeight: 8 });
-       this.load.spritesheet('buildings', 'assets/buildings.png', { frameWidth: 8, frameHeight: 8 });
+       this.load.spritesheet('buildings', 'assets/buildings.png', { frameWidth: 8, frameHeight: 11 });
 
        this.load.spritesheet('orderMark', 'assets/orderMark.png', { frameWidth: 8, frameHeight: 12 });
 
@@ -603,10 +603,11 @@ var SceneA = new Phaser.Class({
       // create players physics group
       //
       this.playerBodies = this.physics.add.group();
+      this.playerBodiesActual = this.physics.add.group();
 
       // make sure everything collides
-      this.physics.add.collider(this.playerBodies); // players collide with each other
-      this.physics.add.collider(this.boundBodies, this.playerBodies); // players collide with level bounds
+      this.physics.add.collider(this.playerBodiesActual); // players collide with each other
+      this.physics.add.collider(this.boundBodies, this.playerBodiesActual); // players collide with level bounds
 
       //
       // preload animations
@@ -663,6 +664,8 @@ var SceneA = new Phaser.Class({
         }
       }
 
+      this.runningID = 0;
+
       //
       // 2) Add ingredient locations at random
       //
@@ -671,6 +674,11 @@ var SceneA = new Phaser.Class({
 
       // shuffle ingredients (for random distribution)
       baseIngredients = this.shuffle(baseIngredients);
+
+      // already initialize building groups (for ingredient locations are also buildings)
+      // TO DO: Make sure we don't place orders on INGREDIENT buildings!
+      this.buildingBodies = this.physics.add.staticGroup();
+      this.buildingBodiesActual = this.physics.add.staticGroup();
 
       // go through all ingredient locations
       var tempIngLocs = [];
@@ -694,6 +702,7 @@ var SceneA = new Phaser.Class({
 
         ing.displayWidth = ing.displayHeight = this.tileWidth;
         ing.setSize(this.tileWidth, this.tileWidth).refreshBody();
+        ing.id = this.runningID++;
 
         // set some properties => ingredient type and price
         // (modulo wrap the baseIngredients array to get a few duplicates around the map)
@@ -705,7 +714,22 @@ var SceneA = new Phaser.Class({
 
         // create single road piece next to it
         // (this algorithm creates a road, tries to connect it to an existing road => if it fails, it extends the road as far as it can go (probably the edge of the screen)
-        this.extendRoad(x,y);
+        var result = this.extendRoad(x,y);
+
+        // move ingredient body to the road (again, invert the extendRoad direction)
+        // (will soon be replaced by an actual building at that location)
+        ing.x -= result[0] * this.tileWidth;
+        ing.y -= result[1] * this.tileHeight;
+        ing.depth = -0.5;
+        ing.refreshBody();
+
+        // figure out rotation and type by myself
+        var rotation = this.convertVectorToRotation(result);
+        var type = Math.log2(ing.myNum);
+
+        // create building
+        var b = this.createBuilding(x, y, rotation, type);
+        b.myStatus = 'disabled';
       }
       
       // finally, check for overlap between players and ingredients
@@ -737,6 +761,7 @@ var SceneA = new Phaser.Class({
         table.displayWidth = table.displayHeight = this.tileWidth;
         table.setSize(this.tileWidth, this.tileWidth).refreshBody();
         table.setFrame(1);
+        table.id = this.runningID++;
 
         // initialize tables empty
         // a table can only contain ONE type of thing => if you add more ingredients, they try to combine into a pizza
@@ -749,8 +774,8 @@ var SceneA = new Phaser.Class({
         table.myContentSprite.setVisible(false);
         //table.myContentSprite.setFrame(table.myContent);
 
-        table.z = table.y;
-        table.myContentSprite.z = table.z;
+        table.depth = table.y;
+        table.myContentSprite.depth = table.depth;
 
         // animate this sprite (just softly go up and down, repeat infinitely)
         var tween = this.tweens.add({
@@ -767,13 +792,12 @@ var SceneA = new Phaser.Class({
       }
 
       // make player and tables collide
-      this.physics.add.collider(this.playerBodies, this.tableBodies, this.playerAtTable, null, this);
+      this.physics.add.collider(this.playerBodiesActual, this.tableBodies, this.playerAtTable, null, this);
 
       //
       // 4) Place some buildings around the map
       //
       var numBuildings = 30;
-      this.buildingBodies = this.physics.add.staticGroup();
       this.orderAreas = this.physics.add.staticGroup();
       for(var i = 0; i < numBuildings; i++) {
         console.log("Creating building " + i);
@@ -823,16 +847,9 @@ var SceneA = new Phaser.Class({
         // convert index to rotation
         // NOTE: Do this BEFORE we use extendRoad, as that modifies the array (dirs), and arrays are passed by reference.
         // NOTE 2: Remember we must REVERSE this to face the road
-        var ind = dirs[rotation]
-        if(ind[0] == 1) {
-          rotation = 2;
-        } else if(ind[0] == -1) {
-          rotation = 0;
-        } else if(ind[1] == 1) {
-          rotation = 3;
-        } else {
-          rotation = 1;
-        }
+        var ind = dirs[rotation];
+        var rotation = this.convertVectorToRotation(ind);
+
 
         // if it still doesn't have a road ...
         if(!hasRoad) {
@@ -843,16 +860,8 @@ var SceneA = new Phaser.Class({
         // 4 MEANS building
         this.map[x][y] = 4;
 
-        // now create the building body! (with correct frame = rotation)
-        var building = this.buildingBodies.create(x * this.tileWidth, y * this.tileHeight, 'buildings');
-
-        building.displayWidth = building.displayHeight = this.tileWidth;
-        building.setSize(this.tileWidth, this.tileWidth).refreshBody();
-
-        building.setFrame(rotation);
-        building.z = building.y;
-        building.myOrder = null;
-        building.myStatus = 'none';
+        // TO DO: Update type value (4th parameter) to get the right building
+        var building = this.createBuilding(x, y, rotation, 1);
 
         // now create a body in front of it that will be used for taking/delivering orders
         var orderArea = this.orderAreas.create((x - ind[0]) * this.tileWidth, (y - ind[1]) * this.tileHeight, 'staticAssets');
@@ -860,35 +869,38 @@ var SceneA = new Phaser.Class({
         orderArea.setVisible(false);
         orderArea.enable = false;
 
-        orderArea.setScale(4,4);
+        orderArea.setScale(4,4).refreshBody();
 
         orderArea.myBuilding = building;
-        orderArea.z = building.z;
+        orderArea.depth = -0.5;
 
         // connect building with its area
         building.myArea = orderArea;
 
         // add order mark
-        var orderMark = this.add.sprite(building.x, building.y - this.tileHeight*1.5, 'orderMark');
+        var orderMark = this.add.sprite(building.x, building.y - this.tileHeight*2, 'orderMark');
         orderMark.setVisible(false);
-        orderMark.z = building.z;
+        orderMark.depth = building.depth;
         building.myOrderMark = orderMark;
 
         orderMark.setScale(4,4);
 
         // add order sprite
-        var orderSprite = this.add.sprite(building.x, building.y - this.tileHeight*1.5, 'ingredients');
+        var orderSprite = this.add.sprite(building.x, building.y - this.tileHeight*2, 'ingredients');
         orderSprite.setVisible(false);
         orderSprite.setScale(4,4);
-        orderSprite.z = building.z;
+        orderSprite.depth = building.depth;
 
         building.myOrderSprite = orderSprite;
 
         console.log("Done creating building " + i);
       }
 
-      // make buildings and players collide
-      this.physics.add.collider(this.playerBodies, this.buildingBodies);
+      // make ACTUAL buildings and players collide
+      this.physics.add.collider(this.playerBodiesActual, this.buildingBodiesActual);
+      
+      // otherwise, make buildings and players overlap (to make them transparent if the player is behind them)
+      this.physics.add.overlap(this.playerBodies, this.buildingBodies, this.playerBehindBuilding, null, this);
 
       // make players and orderAreas overlap
       this.physics.add.overlap(this.playerBodies, this.orderAreas, this.playerAtArea, null, this);
@@ -901,7 +913,7 @@ var SceneA = new Phaser.Class({
       this.curOutstandingOrders = 0;
 
       // let first building place some order
-      this.addEventToQueue('placeOrder', 10, { 'building': this.buildingBodies.getChildren()[0] });
+      this.addEventToQueue('placeOrder', 10, { 'building': this.grabRandomBuilding() });
 
 
       //
@@ -923,6 +935,48 @@ var SceneA = new Phaser.Class({
       this.updateMoney(0);
     },
 
+    convertVectorToRotation(vec) {
+      if(vec[0] == 1) {
+        return 2;
+      } else if(vec[0] == -1) {
+        return 0;
+      } else if(vec[1] == 1) {
+        return 3;
+      } else {
+        return 1;
+      }
+    },
+
+    createBuilding(x, y, rotation, type) {
+      // now create the building body! (with correct frame = rotation)
+      var building = this.buildingBodies.create(x * this.tileWidth, y * this.tileHeight, 'buildings');
+
+      // building.displayWidth = building.displayHeight = this.tileWidth;
+      building.setOrigin(0.5, 1);
+      building.y += 32*0.5;
+      building.setScale(4,4).refreshBody();
+
+      // find correct frame based on type
+      // (they are just sets of 4, starting with the five ingredients)
+      rotation = rotation + type*4;
+
+      building.setFrame(rotation);
+      building.depth = building.y;
+      building.myOrder = null;
+      building.myStatus = 'none';
+      building.id = this.runningID++;
+
+      // now create the ACTUAL building body, which is what we'll be COLLIDING with
+      var actualBody = this.buildingBodiesActual.create(building.x, building.y, null);
+      actualBody.setVisible(false);
+      actualBody.setOrigin(0.5, 1);
+      actualBody.displayWidth = building.displayWidth
+      actualBody.displayHeight = (building.displayHeight - 3*4);
+      actualBody.refreshBody();
+
+      return building;
+    },
+
     addEventToQueue(evType, deltaTime, params) {
       // adds event at time it should be trigged, including correct properties/parameters
       var curTime = this.time.now + deltaTime
@@ -930,6 +984,11 @@ var SceneA = new Phaser.Class({
     },
 
     checkEventQueue(time) {
+      // if there are no events, return immediately!
+      if(this.eventQ.length <= 0) {
+        return;
+      }
+
       var lastTime = -1;
 
       // as long as we have events that should have fired within the time frame ...
@@ -950,36 +1009,39 @@ var SceneA = new Phaser.Class({
       }
     },
 
+    grabRandomBuilding() {
+      var randBuilding = null;
+      do {
+        randBuilding = this.buildingBodies.getChildren()[ Math.floor(Math.random() * this.buildingBodies.getChildren().length ) ];
+      } while(randBuilding.myStatus != 'none');
+
+      return randBuilding;
+    },
+
     executeEvent(ev) {
       if(ev.type == 'placeOrder') {
         // Plan the next order event
-        var randTime = Math.random() * 8000 + 5000;
-        var randBuilding = null;
-        do {
-          randBuilding = this.buildingBodies.getChildren()[ Math.floor(Math.random() * this.buildingBodies.getChildren().length ) ];
-        } while(randBuilding.myStatus != 'none');
+        var randTime = Math.random() * 10000 + 10000;
+        var randBuilding = this.grabRandomBuilding();
 
         this.addEventToQueue('placeOrder', randTime, { 'building': randBuilding });
 
         // if we already have too many orders, don't create a new one
+        // otherwise, keep track of the currently outstanding orders
         var maxOrders = 6;
         if(this.curOutstandingOrders >= maxOrders) {
           return;
         }
-
         this.curOutstandingOrders++;
 
         // Generate a random order
+        // (always start with dough, then just randomly add stuff on top)
         var order = [1,0,0,0,0];
         var orderNumber = 1;
 
         for(var i = 1; i < 5; i++) {
           order[i] = Math.round(Math.random());
-
-          if(order[i] == 1) {
-            orderNumber += Math.pow(2, i);
-          }
-          
+          orderNumber += order[i] * Math.pow(2, i);
         }
 
         // save order on the building
@@ -1022,7 +1084,7 @@ var SceneA = new Phaser.Class({
       return true;
     },
 
-    extendRoad(x,y, customDirs = null, customInd = null) {
+    extendRoad(x, y, customDirs = null, customInd = null) {
       // all 4 directions around (x,y)
       var dirs = [[1,0], [0,1], [-1,0], [0,-1]];
 
@@ -1108,11 +1170,39 @@ var SceneA = new Phaser.Class({
         var newRoad = this.add.sprite(p.x * this.tileWidth, p.y * this.tileWidth, 'staticAssets');
 
         newRoad.setScale(4,4);
-        newRoad.z = -1; // road is on the ground, so always "behind" the res
+        newRoad.depth = -1; // road is on the ground, so always "behind" the rest
       }
+
+      // return the direction we've chosen
+      // (could be used by the caller)
+      return randDir;
+    },
+
+    playerBehindBuilding(player, building) {
+      // check if the building is actually IN FRONT of the player
+      if(player.depth > building.depth) {
+        return;
+      }
+
+      // check if this one is already in the list
+      var alreadyListed = false;
+      for(var i = 0; i < player.obstructingObjects.length; i++) {
+        if(player.obstructingObjects[i].id == building.id) {
+          alreadyListed = true;
+        }
+      }
+
+      if(alreadyListed) {
+        return;
+      }
+
+      // if not, add it
+      player.obstructingObjects.push(building);
     },
 
     playerAtTable(player, table) {
+      player = player.myPlayer;
+
       // if this player is already using this table, ignore the rest of this
       if(player.currentTable != null) {
         return;
@@ -1125,8 +1215,20 @@ var SceneA = new Phaser.Class({
     },
 
     sendTableMessage(player, table) {
-      var msg = { 'type': 'table', 'content': table.myContent, 'backpack': player.myIngredients };
-      player.myPeer.send( JSON.stringify(msg) );
+      // find all players connected to this table
+      for(var i = 0; i < this.players.length; i++) {
+        // ignore players who do not match table id
+        var p = this.players[i];
+        if(p.currentTable.id != table.id) {
+          continue;
+        }
+
+        // send (personalized) message
+        var msg = { 'type': 'table', 'content': table.myContent, 'backpack': p.myIngredients };
+        p.myPeer.send( JSON.stringify(msg) );
+      }
+
+
     },
 
     ingameFeedback(initiator, msg, color = "#FF0000") {
@@ -1237,13 +1339,10 @@ var SceneA = new Phaser.Class({
       var numSlotsFilled = 0;
       for(var i = 0; i < oldMix.length; i++) {
         finalMix[i] = Math.max(oldMix[i], newMix[i]);
+        finalIng += finalMix[i] * Math.pow(2, i);
 
         if(finalMix[i] > 0) {
           numSlotsFilled++;
-        }
-
-        if(finalMix[i] == 1) {
-          finalIng += Math.pow(2, i);
         }
       }
 
@@ -1291,7 +1390,8 @@ var SceneA = new Phaser.Class({
     },
 
     playerAtArea: function(player, area) {
-      if(player.currentArea == null) {
+      // if this player does NOT have an assigned area yet, and this area is NOT currently being used
+      if(player.currentArea == null && !area.beingUsed) {
         // if this building does nothing special, we do nothing special
         if(area.myBuilding.myStatus == 'none') {
           return;
@@ -1316,6 +1416,8 @@ var SceneA = new Phaser.Class({
         var msg = { 'type': 'area', 'status': area.myBuilding.myStatus };
         player.currentArea = area;
         player.myPeer.send( JSON.stringify(msg) );
+
+        area.beingUsed = true;
       }
     },
 
@@ -1504,12 +1606,16 @@ var SceneA = new Phaser.Class({
       for(var i = 0; i < this.players.length; i++) {
         var p = this.players[i];
 
+        // match position of player with position of their actual body
+        p.x = p.actualBody.x;
+        p.y = p.actualBody.y - p.displayHeight + (0.25*0.5)*p.displayHeight;
+
         // update their Z value for depth sorting
         // (we have a very simple Y-sort in this game)
-        p.z = p.y;
+        p.depth = p.y;
 
         // set backpack above the players
-        var targetY = p.y - 0.5*p.displayHeight - 16;
+        var targetY = p.y - p.displayHeight - 16;
         var margin = 4;
         var spriteWidth = 32 + margin;
         for(var b = 0; b < p.backpackSprites.length; b++) {
@@ -1552,10 +1658,28 @@ var SceneA = new Phaser.Class({
         // check if we've STOPPED overlapping an area
         if(p.currentArea != null) {
           if(!this.checkOverlap(p, p.currentArea)) {
+            // if so, reset variables (both on player and area)
+            p.currentArea.beingUsed = false;
             p.currentArea = null;
 
+            // inform ourselves
             var msg = { 'type': 'area-end' }
             p.myPeer.send( JSON.stringify(msg) );
+          }
+        }
+
+        // check if we need to change our OBSTRUCTING OBJECTS
+        var numObstructions = p.obstructingObjects.length;
+        if(numObstructions > 0) {
+          for(var o = (numObstructions - 1); o >= 0; o--) {
+            var obj = p.obstructingObjects[o];
+
+            if(!this.checkOverlap(p, obj) || p.depth >= obj.depth) {
+              obj.alpha = 1.0;
+              p.obstructingObjects.splice(o, 1);
+            } else {
+              obj.alpha = 0.2;
+            }
           }
         }
       }
@@ -1587,8 +1711,22 @@ var SceneA = new Phaser.Class({
       var scaleFactor = (desiredHeight/16);
 
       newPlayer.setScale(scaleFactor);
+      newPlayer.setOrigin(0.5, 1.0);
+
+      // create the actual BODY of the player
+      var actualBody = this.playerBodiesActual.create(randX, randY, null);
+      actualBody.setVisible(false);
+
+      actualBody.setSize(11, 4);
+      actualBody.setScale(scaleFactor);
+      actualBody.setOrigin(0.5, 1.0);
+
+      // create two-way street connection
+      actualBody.myPlayer = newPlayer;
+      newPlayer.actualBody = actualBody;
 
       // scale it up! => doesn't work, no idea why "this.body.updateFromGameObject()" is not a function
+      // I know now: it's only available (and needed) for static bodies
       //newPlayer.setScale(4).refreshBody();
 
       // tint it (for now, to distinguish players)
@@ -1611,6 +1749,8 @@ var SceneA = new Phaser.Class({
       newPlayer.currentTable = null;
 
       newPlayer.currentArea = null;
+
+      newPlayer.obstructingObjects = [];
 
       //
       // ingredients/backpack container
@@ -1656,7 +1796,7 @@ var SceneA = new Phaser.Class({
 
       // just move the player according to velocity vector
       // var curVel = player.velocity
-      player.setVelocity(vec[0] * speed, vec[1] * speed);
+      player.actualBody.setVelocity(vec[0] * speed, vec[1] * speed);
 
       // if we should stop, play idle animation
       if(vec[0] == 0 && vec[1] == 0) {
@@ -1701,7 +1841,7 @@ function startPhaser() {
     physics: {
         default: 'arcade',
         arcade: { 
-          debug: false,
+          debug: true,
         }
     },
     pixelArt: true,

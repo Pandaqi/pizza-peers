@@ -267,6 +267,9 @@ function initializeNetwork() {
       if(data.type == 'lobby') {
         var dynInt = document.getElementById('dynamicInterface');
 
+        // remember we're vip
+        peer.isVIP = true;
+
         // create button to start the game
         var button = document.createElement("button");
         button.classList.add('buyButton');
@@ -285,6 +288,34 @@ function initializeNetwork() {
 
       if(data.type == 'start-game') {
         gm.startGame();
+      }
+
+      if(data.type == 'restart-game') {
+        gm.restartGame();
+      }
+
+      if(data.type == 'game-end') {
+        document.getElementById('dynamicInterface').innerHTML = 'GAME OVER! ';
+
+        // if we are the vip, get the button to restart
+        if(peer.isVIP) {
+          var button = document.createElement("button");
+          button.classList.add('buyButton');
+          button.innerHTML = "<span>Play again?</span>";
+          dynInt.appendChild(button);
+
+          button.addEventListener ("click", function() {
+            // remove button again
+            dynInt.innerHTML = '';
+
+            // send message to start the game
+            var msg = { 'type': 'restart-game' }
+            peer.send( JSON.stringify(msg) );
+          });
+        }
+
+        // TO DO: Also give a button to "destroy" the game, makes it easy to remove from the server as well
+        // (Alternatively, when you close the computer screen, automatically send one final signal to the server that it should remove the game)
       }
 
       if(peer.isConnected) {
@@ -387,12 +418,15 @@ function initializeNetwork() {
 
             var btn = document.createElement("button");
             btn.classList.add('buyButton');
+            btn.setAttribute('data-ing', curIng);
             btn.innerHTML = "<span>Drop</span><div class='ingSprite' style='background-position:-" + (curIng*32) + "px 0;'></div><span>on the table</span>";
             dynInt.appendChild(btn);
             
             // tell computer to drop this ingredient
-            btn.addEventListener ("click", function() {
-              var msg = { 'type': 'table-drop', 'ing': curIng };
+            btn.addEventListener("click", function(ev) {
+              // IMPORTANT: use ev.currentTarget to get the thing that has the eventListener, ev.target is the thing that was actually clicked
+              var ingredient = parseInt( ev.currentTarget.getAttribute('data-ing') );
+              var msg = { 'type': 'table-drop', 'ing': ingredient };
               peer.send( JSON.stringify(msg) );
 
               dynInt.innerHTML = '';
@@ -874,8 +908,6 @@ var SceneA = new Phaser.Class({
       var numBuildings = 30;
       this.orderAreas = this.physics.add.staticGroup();
       for(var i = 0; i < numBuildings; i++) {
-        console.log("Creating building " + i);
-
         // search for a free (x,y) spot
         var x,y
         do {
@@ -975,8 +1007,6 @@ var SceneA = new Phaser.Class({
         hourGlass.depth = orderMark.depth;
         hourGlass.setScale(2,2);
         building.myHourglass = hourGlass;
-
-        console.log("Done creating building " + i);
       }
 
       // make ACTUAL buildings and players collide
@@ -1077,10 +1107,22 @@ var SceneA = new Phaser.Class({
       this.updateMoney(0, null);
 
       //
-      // finally, start the game in paused mode
-      // TO DO: Make exception on restarts; no reason to pause there
+      // finally, determine what to do, depending on if it's a restart or not
       //
-      this.scene.pause();
+      if(this.beingRestarted) {
+        // go through all old players and add them into the game again
+        for(var i = 0; i < this.oldPlayers.length; i++) {
+          this.addPlayer(this.oldPlayers[i].peer);
+        }
+
+        // call the startGame() function
+        this.startGame()
+
+      // if not a restart, initialize game in paused mode (VIP must wait for everyone to join, then start by pressing a button)
+      } else {
+        this.scene.pause();
+      }
+      
     },
 
     createWorkspace() {
@@ -1121,8 +1163,6 @@ var SceneA = new Phaser.Class({
         var dirs = [[1,0], [-1,0], [0,1], [0,-1]];
         for(var i = 0; i < 4; i++) {
           var newPoint = [ p[0] + dirs[i][0], p[1] + dirs[i][1] ];
-
-          console.log(newPoint);
 
           // check if this is allowed according to the current map
           if( this.map[newPoint[0]][newPoint[1]] != 0) {
@@ -1381,6 +1421,20 @@ var SceneA = new Phaser.Class({
       this.map[x][y] = 5;
     },
 
+    restartGame() {
+      // mark the scene as being restarted
+      this.beingRestarted = true;
+
+      // copy players to backup variable; clear the actual array
+      this.oldPlayers = this.players;
+      this.players = [];
+
+      // restart this whole scene
+      this.scene.restart();
+
+      // NOTE: now, at the "create" function, it should automatically add all the players and call startGame()
+    },
+
     startGame() {
       var numPlayers = this.players.length;
 
@@ -1518,19 +1572,27 @@ var SceneA = new Phaser.Class({
         }
         this.curOutstandingOrders++;
 
+        //
         // Generate a random order
         // (always start with dough, then just randomly add stuff on top)
+        //
         var order = [1,0,0,0,0];
         var orderNumber = 1;
+        var moIngNum = 1;
 
         for(var i = 1; i < 5; i++) {
           order[i] = Math.round(Math.random());
           orderNumber += order[i] * Math.pow(2, i);
+
+          if(order[i] == 1) {
+            moIngNum++;
+          }
         }
 
         // save order on the building
         var b = ev.params.building;
         b.myOrder = orderNumber;
+        b.myOrderIngredientNum = moIngNum;
         b.myOrderID++;
 
         // remember we're currently ORDERING a pizza (waiting for someone to collect the order)
@@ -1547,9 +1609,9 @@ var SceneA = new Phaser.Class({
         // Plan an event for this order ALMOST running out
         // 30 seconds before warning, then another 15 until it runs out
         var orderPickupTime = 30 * 1000;
-        this.addEventToQueue('almostOrderFailed', orderPickupTime, { 'building': b, 'id': b.myOrderID });
+        this.addEventToQueue('almostFailed', orderPickupTime, { 'building': b, 'id': b.myOrderID, 'statusCheck': 'ordering' });
       
-      } else if(ev.type == 'almostOrderFailed') {
+      } else if(ev.type == 'almostFailed') {
         // if this building is STILL ordering, oh no!
         //  - turn on the hourglass animation
         //  - make the order mark flicker? (TO DO: Use a tween, but we'd need to do bookkeeping to remove the tween later)
@@ -1557,23 +1619,26 @@ var SceneA = new Phaser.Class({
         // NOTE: It _could_ happen that a building goes from ordering => waiting => none => ordering within that timespan
         // That's why we keep an ID that tracks the current order number, and add it to the event
         var b = ev.params.building;
-        if(b.myStatus == 'ordering' && b.myOrderID == ev.params.id) {
+        if(b.myStatus == ev.params.statusCheck && b.myOrderID == ev.params.id) {
           b.myHourglass.setVisible(true);
           b.myHourglass.anims.play('hourglass');
 
           // plan definite run out event
           var orderFailTime = 15 * 1000;
-          this.addEventToQueue('orderFailed', orderFailTime, { 'building': b, 'id': b.myOrderID });
+          if(ev.params.statusCheck == 'waiting') {
+            orderFailTime = 30 * 1000;
+          }
+          this.addEventToQueue('orderFailed', orderFailTime, { 'building': b, 'id': b.myOrderID, 'statusCheck': ev.params.statusCheck });
         }
       
       } else if(ev.type == 'orderFailed') {
 
         // if the order timer has run out, but we're still ordering, we have failed ...
-        // TO DO: Same problem as above: we could be in the next cycle; should I just keep counting order IDs on the building?
         var b = ev.params.building;
-        if(b.myStatus == 'ordering'  && b.myOrderID == ev.params.id) {
+        if(b.myStatus == ev.params.statusCheck && b.myOrderID == ev.params.id) {
           this.failOrder(b);
         }
+      
       }
     },
 
@@ -2008,21 +2073,29 @@ var SceneA = new Phaser.Class({
       // remove this order from the accumulative total
       this.curOutstandingOrders--;
 
+      // plan the delivery ran out event
+      // you have one minute for delivery, then 30 seconds before it's definitely over
+      // NO, time depends on complexity of the order; 15 seconds per ingredient
+      var deliveryTime = b.myOrderIngredientNum * 15 * 1000;
+      this.addEventToQueue('almostFailed', deliveryTime, { 'building': b, 'id': b.currentID, 'statusCheck': 'waiting' });
+
       // remove exclamation mark
-      // (TO DO: Stop animation; I don't know how)
       b.myOrderMark.setVisible(false);
-      // b.myOrderMark.anims.stop();
+      b.myOrderMark.anims.stop();
 
       // Also change the visual state to match (show the current wanted pizza type)
       b.myOrderSprite.setVisible(true);
       b.myOrderSprite.setFrame(b.myOrder);
 
       // And hide/stop the hour glass, just in case it was busy doing stuff
-      b.hourGlass.setVisible(false);
-      b.hourGlass.anims.stop();
+      b.myHourglass.setVisible(false);
+      b.myHourglass.anims.stop();
     },
 
     failOrder: function(b) {
+      // remember status, it determines the gravity of the penalty
+      var oldStatus = b.myStatus; 
+
       // first, reset all necessary stuff on the building itself
       b.myStatus = 'none';
       this.curOutstandingOrders--;
@@ -2030,16 +2103,18 @@ var SceneA = new Phaser.Class({
       b.myOrderMark.setVisible(false);
       b.myArea.setVisible(false);
       b.myArea.enable = false;
-      b.hourGlass.setVisible(false);
-      b.hourGlass.anims.stop();
+      b.myHourglass.setVisible(false);
+      b.myHourglass.anims.stop();
 
       // then, give a money penalty
-      var penalty = -Math.floor(Math.random()*10)+10;
+      // (higher penalty if you failed the DELIVERY, instead of failing to pick up the order)
+      var penalty = -( Math.floor(Math.random()*10)+10 );
+      if(oldStatus == 'waiting') { penalty *= 2; }
       this.updateMoney(penalty, b, true)
 
       // and add a "strike" to the number of failed orders
-      this.numFailedOrders++;
       this.strikeSprites[this.numFailedOrders].setFrame(9);
+      this.numFailedOrders++;
 
       // if we've failed too many times, go to game over - we lost
       if(this.numFailedOrders >= this.maxAllowedFails) {
@@ -2064,7 +2139,8 @@ var SceneA = new Phaser.Class({
       this.updateIngredient(peer, o, -1);
 
       // and GIVE US MONEYEEYEYEYYEYYEEY
-      var randMoney = Math.floor(Math.random() * 20) + 15;
+      // at least 5 bucks per ingredient, plus some random extras
+      var randMoney = b.myOrderIngredientNum * 5 + Math.floor(Math.random() * 15) + 5;
       this.ingameFeedback(player, randMoney + ' coins!', '#00FF00');
       this.updateMoney(randMoney, player);
 
@@ -2076,8 +2152,8 @@ var SceneA = new Phaser.Class({
       b.myArea.enable = false;
 
       // And hide/stop the hour glass, just in case it was busy doing stuff
-      b.hourGlass.setVisible(false);
-      b.hourGlass.anims.stop();
+      b.myHourglass.setVisible(false);
+      b.myHourglass.anims.stop();
 
       // reset status to none (we have our thing, stop whining about it)
       b.myStatus == 'none';
@@ -2125,8 +2201,17 @@ var SceneA = new Phaser.Class({
     },
 
     gameOver: function(win) {
-      // TO DO: Pause sceneA, overlay game over scene
-      //        Tell players what happened (why they won/lost), give VIP option to restart
+      this.scene.pause();
+
+      // Clean the screen of all players
+      // Give VIP option to restart
+      for(var i = 0; i < this.players.length; i++) {
+        var msg = { 'type': 'game-end' };
+        this.players[i].myPeer.send( JSON.stringify(msg) );
+      }
+
+      // TO DO: Overlay game over scene
+      //        Tell players what happened (why they won/lost)
     },
 
     updateMoney: function(dm, initiator, penalty = false) {
@@ -2292,9 +2377,12 @@ var SceneA = new Phaser.Class({
           for(var o = (numObstructions - 1); o >= 0; o--) {
             var obj = p.obstructingObjects[o];
 
+            // if we do NOT overlap, or we are actually in FRONT of this thing, remove it
             if(!this.checkOverlap(p, obj) || p.depth >= obj.depth) {
               obj.alpha = 1.0;
               p.obstructingObjects.splice(o, 1);
+
+            // otherwise, keep it as is
             } else {
               obj.alpha = 0.6;
             }
@@ -2336,10 +2424,11 @@ var SceneA = new Phaser.Class({
       actualBody.setVisible(false);
 
       // actual size = 11,16 => body size = 11,4 => changed that to 9,3 just to be sure
-
+      // NOTE: Perhaps consider making the body an ELLIPSE/ROUNDED RECTANGLE, because I've found that to move more smoothly around the world
+      actualBody.setOrigin(0.5, 1.0);
       actualBody.setSize(9, 3);
       actualBody.setScale(scaleFactor);
-      actualBody.setOrigin(0.5, 1.0);
+      
 
       // create two-way street connection
       actualBody.myPlayer = newPlayer;

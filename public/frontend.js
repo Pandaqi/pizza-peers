@@ -607,12 +607,12 @@ var SceneA = new Phaser.Class({
        this.load.spritesheet('buildings', 'assets/buildings.png', { frameWidth: 8, frameHeight: 11 });
 
        this.load.spritesheet('orderMark', 'assets/orderMark.png', { frameWidth: 8, frameHeight: 12 });
+       this.load.spritesheet('hourglass', 'assets/hourglass.png', { frameWidth: 16, frameHeight: 16});
 
     },
 
     create: function() {
-      // add room code at top right
-      // NO, for now keep it simple, it's top left
+      // add room code at bottom right
       var roomText = this.add.text(this.canvas.width - 10, this.canvas.height - 10, connection.room);
       var styleConfig = {
         fontFamily: '"VT323"',
@@ -623,6 +623,24 @@ var SceneA = new Phaser.Class({
 
       roomText.setStyle(styleConfig);
       roomText.setOrigin(1, 1);
+
+      //
+      // Add "strikes" (5 strikes fails the level) at the top right
+      // These keep track of the number of failed orders; fill them all
+      //
+      this.maxAllowedFails = 5;
+      this.strikeSprites = [];
+      this.numFailedOrders = 0;
+      var margin = 10;
+      for(var i = 0; i < this.maxAllowedFails; i++) {
+        var newSprite = this.add.sprite(this.canvas.width - 5*(32 + margin) + i*(32 + margin), margin, 'staticAssets');
+        newSprite.setFrame(8);
+        newSprite.setOrigin(1, 0);
+        newSprite.setScale(4,4);
+        newSprite.depth  = this.canvas.height*2;
+
+        this.strikeSprites.push(newSprite);
+      }
 
       //
       // add boundaries at screen edge
@@ -685,6 +703,13 @@ var SceneA = new Phaser.Class({
       this.anims.create({
             key: 'moneyRotate',
             frames: this.anims.generateFrameNumbers('moneyAnim', { start: 0, end: 5 }),
+            frameRate: 10,
+            repeat: -1
+        });
+
+      this.anims.create({
+            key: 'hourglass',
+            frames: this.anims.generateFrameNumbers('hourglass', { start: 0, end: 9 }),
             frameRate: 10,
             repeat: -1
         });
@@ -942,6 +967,14 @@ var SceneA = new Phaser.Class({
         orderSprite.depth = building.depth;
 
         building.myOrderSprite = orderSprite;
+        building.myOrderID = 0;
+
+        // add hourglass
+        var hourGlass = this.add.sprite(orderMark.x + 0.5*orderMark.displayWidth, orderMark.y, 'hourglass');
+        hourGlass.setVisible(false);
+        hourGlass.depth = orderMark.depth;
+        hourGlass.setScale(2,2);
+        building.myHourglass = hourGlass;
 
         console.log("Done creating building " + i);
       }
@@ -1041,7 +1074,7 @@ var SceneA = new Phaser.Class({
       this.moneyText.setOrigin(0, 0.5);
       this.moneyText.depth = this.canvas.height * 2;
 
-      this.updateMoney(0);
+      this.updateMoney(0, null);
 
       //
       // finally, start the game in paused mode
@@ -1479,7 +1512,7 @@ var SceneA = new Phaser.Class({
 
         // if we already have too many orders, don't create a new one
         // otherwise, keep track of the currently outstanding orders
-        var maxOrders = 6;
+        var maxOrders = this.players.length;
         if(this.curOutstandingOrders >= maxOrders) {
           return;
         }
@@ -1498,6 +1531,7 @@ var SceneA = new Phaser.Class({
         // save order on the building
         var b = ev.params.building;
         b.myOrder = orderNumber;
+        b.myOrderID++;
 
         // remember we're currently ORDERING a pizza (waiting for someone to collect the order)
         b.myStatus = 'ordering';
@@ -1509,6 +1543,37 @@ var SceneA = new Phaser.Class({
         // Show a wobbling/jumping exclamation mark over the building
         b.myOrderMark.setVisible(true);
         b.myOrderMark.anims.play('orderJump', true);
+
+        // Plan an event for this order ALMOST running out
+        // 30 seconds before warning, then another 15 until it runs out
+        var orderPickupTime = 30 * 1000;
+        this.addEventToQueue('almostOrderFailed', orderPickupTime, { 'building': b, 'id': b.myOrderID });
+      
+      } else if(ev.type == 'almostOrderFailed') {
+        // if this building is STILL ordering, oh no!
+        //  - turn on the hourglass animation
+        //  - make the order mark flicker? (TO DO: Use a tween, but we'd need to do bookkeeping to remove the tween later)
+
+        // NOTE: It _could_ happen that a building goes from ordering => waiting => none => ordering within that timespan
+        // That's why we keep an ID that tracks the current order number, and add it to the event
+        var b = ev.params.building;
+        if(b.myStatus == 'ordering' && b.myOrderID == ev.params.id) {
+          b.myHourglass.setVisible(true);
+          b.myHourglass.anims.play('hourglass');
+
+          // plan definite run out event
+          var orderFailTime = 15 * 1000;
+          this.addEventToQueue('orderFailed', orderFailTime, { 'building': b, 'id': b.myOrderID });
+        }
+      
+      } else if(ev.type == 'orderFailed') {
+
+        // if the order timer has run out, but we're still ordering, we have failed ...
+        // TO DO: Same problem as above: we could be in the next cycle; should I just keep counting order IDs on the building?
+        var b = ev.params.building;
+        if(b.myStatus == 'ordering'  && b.myOrderID == ev.params.id) {
+          this.failOrder(b);
+        }
       }
     },
 
@@ -1951,6 +2016,35 @@ var SceneA = new Phaser.Class({
       // Also change the visual state to match (show the current wanted pizza type)
       b.myOrderSprite.setVisible(true);
       b.myOrderSprite.setFrame(b.myOrder);
+
+      // And hide/stop the hour glass, just in case it was busy doing stuff
+      b.hourGlass.setVisible(false);
+      b.hourGlass.anims.stop();
+    },
+
+    failOrder: function(b) {
+      // first, reset all necessary stuff on the building itself
+      b.myStatus = 'none';
+      this.curOutstandingOrders--;
+
+      b.myOrderMark.setVisible(false);
+      b.myArea.setVisible(false);
+      b.myArea.enable = false;
+      b.hourGlass.setVisible(false);
+      b.hourGlass.anims.stop();
+
+      // then, give a money penalty
+      var penalty = -Math.floor(Math.random()*10)+10;
+      this.updateMoney(penalty, b, true)
+
+      // and add a "strike" to the number of failed orders
+      this.numFailedOrders++;
+      this.strikeSprites[this.numFailedOrders].setFrame(9);
+
+      // if we've failed too many times, go to game over - we lost
+      if(this.numFailedOrders >= this.maxAllowedFails) {
+        this.gameOver(false);
+      }
     },
 
     deliverOrder: function(peer) {
@@ -1972,7 +2066,7 @@ var SceneA = new Phaser.Class({
       // and GIVE US MONEYEEYEYEYYEYYEEY
       var randMoney = Math.floor(Math.random() * 20) + 15;
       this.ingameFeedback(player, randMoney + ' coins!', '#00FF00');
-      this.updateMoney(randMoney);
+      this.updateMoney(randMoney, player);
 
       // remove our order sprite
       b.myOrderSprite.setVisible(false);
@@ -1980,6 +2074,10 @@ var SceneA = new Phaser.Class({
       // remove our area
       b.myArea.setVisible(false);
       b.myArea.enable = false;
+
+      // And hide/stop the hour glass, just in case it was busy doing stuff
+      b.hourGlass.setVisible(false);
+      b.hourGlass.anims.stop();
 
       // reset status to none (we have our thing, stop whining about it)
       b.myStatus == 'none';
@@ -2023,15 +2121,27 @@ var SceneA = new Phaser.Class({
       }
 
       // subtract money (price for buying)
-      var result = this.updateMoney(-buyInfo.price);
+      var result = this.updateMoney(-buyInfo.price, player);
     },
 
-    updateMoney: function(dm) {
-      // if we don't have enough money for this, repulse the action!
+    gameOver: function(win) {
+      // TO DO: Pause sceneA, overlay game over scene
+      //        Tell players what happened (why they won/lost), give VIP option to restart
+    },
+
+    updateMoney: function(dm, initiator, penalty = false) {
+      // if we don't have enough money for this ...
       if( (this.money + dm) < 0) {
-        this.ingameFeedback(player, 'Not enough money!');
-        console.log("Error: trying to spend money you don't have");
-        return false;
+        // if it's a PENALTY, we lost the game!
+        if(penalty) {
+          this.gameOver(false);
+
+        // otherwise, just give feedback and don't let the action through
+        } else {
+          this.ingameFeedback(initiator, 'Not enough money!');
+          console.log("Error: trying to spend money you don't have");
+          return false;
+        }
       }
 
       this.money += dm;

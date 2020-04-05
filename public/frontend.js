@@ -228,14 +228,12 @@ function initializeNetwork() {
       // remember we're connected
       peer.isConnected = true;
 
-      console.log('CONNECT');
-
       // yay, we're connected!
+      console.log('PLAYER CONNECTED');
 
+      
       // if we were the initiator of a connection, we are a PLAYER
       if(initiator) {
-        // TO DO: Go to lobby screen on phone
-
         // initialize our interface!
         startController();
 
@@ -264,8 +262,56 @@ function initializeNetwork() {
         document.getElementById('messageStream').innerHTML += "<p>" + data.value + "</p>";
       }
 
+      // the first mobile phone to connect, receives this lobby event
+      // it creates a button that, once clicked, actually starts the game
+      if(data.type == 'lobby') {
+        var dynInt = document.getElementById('dynamicInterface');
+
+        // create button to start the game
+        var button = document.createElement("button");
+        button.classList.add('buyButton');
+        button.innerHTML = "<span>Start the game! (Press this once everyone's connected)</span>";
+        dynInt.appendChild(button);
+
+        button.addEventListener ("click", function() {
+          // remove button again
+          dynInt.innerHTML = '';
+
+          // send message to start the game
+          var msg = { 'type': 'start-game' }
+          peer.send( JSON.stringify(msg) );
+        });
+      }
+
+      if(data.type == 'start-game') {
+        gm.startGame();
+      }
+
       if(peer.isConnected) {
         var dynInt = document.getElementById('dynamicInterface');
+
+        // player has received its ALLERGIES
+        if(data.type == 'allergies') {
+          var allergyDiv = document.getElementById('allergyInterface');
+
+          var tempString = '<div class="allergyDiv"><span>You are allergic to</span>'
+          var numAllergies = data.val.length;
+          for(var i = 0; i < numAllergies; i++) {
+            var ingredientIndex = Math.pow(2, data.val[i]); // convert ingredient index (0-4) to position in spritesheet
+            tempString += "<div class='ingSprite' style='background-position:-" + (ingredientIndex*32) + "px 0;'></div>";
+
+            // if this is the second to last iteration, add the word "and"
+            if(i == (numAllergies - 2)) {
+              tempString += "<span>and</span>"
+            } else {
+              tempString += "<span>, </span>"
+            }
+          }
+          tempString += '</div>'
+
+          // finally, set the div to the string we just
+          allergyDiv.innerHTML = tempString;
+        }
 
         // player has requested a MOVE
         if(data.type == 'move') {
@@ -438,7 +484,8 @@ function initializeNetwork() {
     document.getElementById('messageStream').style.display = 'none';
 
     // show form for submitting messages
-    document.getElementById("messageForm").style.display = 'block';
+    // NOTE/TO DO: Turned off for now, don't see the use in this game (but might want it in a later game)
+    // document.getElementById("messageForm").style.display = 'block';
 
     // add touch/mouse event listeners
     var gameDiv = document.getElementById('phaser-game');
@@ -664,7 +711,7 @@ var SceneA = new Phaser.Class({
       this.mapWidth = Math.floor(this.gameWidth / this.tileWidth);
       this.mapHeight = Math.floor(this.gameHeight / this.tileHeight);
 
-      // 1) Create random map (2D grid) that fills the screen
+      // 0) Create random map (2D grid) that fills the screen
       this.map = [];
       for(var x = 0; x < this.mapWidth; x++) {
         this.map[x] = [];
@@ -684,6 +731,29 @@ var SceneA = new Phaser.Class({
       }
 
       this.runningID = 0;
+
+      //
+      // 1) Create random workspace(s)
+      // => the function "createWorkspace" already finds a random location that's far away from existing workspaces
+      //
+      var numWorkspaces = 3;
+      this.existingWorkspaces = [];
+
+      this.wallBodies = this.physics.add.staticGroup();
+      this.wallBodiesActual = this.physics.add.staticGroup();
+
+      this.tableBodies = this.physics.add.staticGroup();
+
+      for(var i = 0; i < numWorkspaces; i++) {
+        this.createWorkspace();
+      }
+
+      // overlap players and walls (for see through)
+      this.physics.add.overlap(this.playerBodies, this.wallBodies, this.playerBehindBuilding, null, this);
+
+      // collide players and walls (because, well, you can't walk through walls)
+      this.physics.add.collider(this.playerBodiesActual, this.wallBodiesActual);
+      
 
       //
       // 2) Add ingredient locations at random
@@ -707,7 +777,7 @@ var SceneA = new Phaser.Class({
         do {
           x = Math.floor(Math.random() * this.mapWidth);
           y = Math.floor(Math.random() * this.mapHeight);
-        } while( !this.mapCheck(x, y, 5, tempIngLocs) );
+        } while( !this.mapCheck(x, y, 10, tempIngLocs) );
 
         // 1 MEANS ingredients
         this.map[x][y] = 1;
@@ -769,61 +839,6 @@ var SceneA = new Phaser.Class({
       
       // finally, check for overlap between players and ingredients
       this.physics.add.overlap(this.playerBodies, this.ingredientBodies, this.playerAtIngredient, null, this);
-
-      //
-      // 3) create some tables for storage/cutting/combining/ baking??
-      //
-      this.tableBodies = this.physics.add.staticGroup();
-      var numTables = 8;
-
-      for(var i = 0; i < numTables; i++) {
-        // keep looking for new locations until we find an empty spot
-        var x,y
-        do {
-          x = Math.floor(Math.random() * this.mapWidth);
-          y = Math.floor(Math.random() * this.mapHeight);
-        } while( !this.mapCheck(x,y, 5, tempIngLocs) );
-
-        // 2 MEANS (default) table
-        this.map[x][y] = 2;
-
-        // now also consider all tables when checking the map
-        tempIngLocs.push({ 'x': x, 'y': y });
-
-        // create the table body with right size and all
-        var table = this.tableBodies.create(x * this.tileWidth, y * this.tileHeight, 'staticAssets');
-
-        table.displayWidth = table.displayHeight = this.tileWidth;
-        table.setSize(this.tileWidth, this.tileWidth).refreshBody();
-        table.setFrame(1);
-        table.id = this.runningID++;
-
-        // initialize tables empty
-        // a table can only contain ONE type of thing => if you add more ingredients, they try to combine into a pizza
-        table.myContent = -1;
-
-        // create sprite that will show whatever the table contains
-        table.myContentSprite = this.add.sprite(table.x, table.y - table.displayHeight, 'ingredients');
-        table.myContentSprite.setScale(4,4);
-        table.myContentSprite.setVisible(false);
-        //table.myContentSprite.setFrame(table.myContent);
-
-        table.depth = table.y;
-        table.myContentSprite.depth = table.depth;
-
-        // animate this sprite (just softly go up and down, repeat infinitely)
-        var tween = this.tweens.add({
-            targets: table.myContentSprite,
-            y: { from: table.myContentSprite.y, to: table.myContentSprite.y - 16 },
-            ease: 'Linear',       // 'Cubic', 'Elastic', 'Bounce', 'Back'
-            duration: 1000,
-            repeat: -1,
-            yoyo: true
-        });
-
-        // and extend the road
-        this.extendRoad(x,y);
-      }
 
       // make player and tables collide
       this.physics.add.collider(this.playerBodiesActual, this.tableBodies, this.playerAtTable, null, this);
@@ -954,6 +969,9 @@ var SceneA = new Phaser.Class({
           y = Math.floor(Math.random() * this.mapHeight);
         } while( this.map[x][y] != 0);
 
+        // 6 MEANS nature
+        this.map[x][y] = 6;
+
         var nature = this.natureBodies.create(x * this.tileWidth, y * this.tileWidth, 'buildings')
 
         var frames = [24,25,26,27]; // array with all nature frames; should update this manually
@@ -963,11 +981,12 @@ var SceneA = new Phaser.Class({
 
         nature.setOrigin(0.5, 1);
         nature.y += 32*0.5;
-        nature.setScale(4,4).refreshBody();
 
         // offset nature randomly within its cell
         nature.y -= Math.random()*0.5*nature.displayHeight;
         nature.x += (Math.random()-0.5)*(nature.displayWidth*0.1)
+
+        nature.setScale(4,4).refreshBody();
 
         nature.depth = nature.y;
 
@@ -1023,6 +1042,344 @@ var SceneA = new Phaser.Class({
       this.moneyText.depth = this.canvas.height * 2;
 
       this.updateMoney(0);
+
+      //
+      // finally, start the game in paused mode
+      // TO DO: Make exception on restarts; no reason to pause there
+      //
+      this.scene.pause();
+    },
+
+    createWorkspace() {
+      // find random starting location
+      // NOTE/TO DO: There is something wrong with the mapCheck function
+      // =>  makes an infinite loop, but why?
+      var x,y;
+      var margin = 3;
+      do {
+        x = Math.floor(Math.random() * (this.mapWidth - margin*2)) + margin;
+        y = Math.floor(Math.random() * (this.mapHeight - margin*2)) + margin;
+      } while( !this.mapCheck(x, y, 10, this.existingWorkspaces) );
+
+      //
+      // use the "bool shape" algorithm to create an IRREGULAR workspace shape
+      // (whilst keeping track of the border for easy wall placement later)
+      //
+
+      // start two lists: points already processed, and current border points of the shape
+      // add the first random point to both lists
+      var processed = [ [x,y] ];
+      var borderPoints = [ [x,y] ];
+      var maxShapeSize = 20;
+
+      this.createRoomFloor(x, y);
+
+      var algorithmDone = false;
+      var fillProbHorizontal = 0.9;
+      var fillProbVertical = fillProbHorizontal * (2/3);
+      while(!algorithmDone) {
+        // take first point in border points
+        var p = borderPoints.shift();
+
+        // add to processed list
+        processed.push(p);
+
+        // go through neighbours
+        var dirs = [[1,0], [-1,0], [0,1], [0,-1]];
+        for(var i = 0; i < 4; i++) {
+          var newPoint = [ p[0] + dirs[i][0], p[1] + dirs[i][1] ];
+
+          console.log(newPoint);
+
+          // check if this is allowed according to the current map
+          if( this.map[newPoint[0]][newPoint[1]] != 0) {
+            continue;
+          }
+
+          // if not, fill it with a random probability
+          var tempProb = (i <= 1) ? fillProbHorizontal : fillProbVertical;
+          if(Math.random() <= tempProb) {
+            borderPoints.push(newPoint);
+
+            this.createRoomFloor(newPoint[0], newPoint[1]);
+          }
+        }
+
+        // stop the algorithm when we have no more border points OR the shape is already large enough
+        algorithmDone = (borderPoints.length <= 0 || processed.length > maxShapeSize);
+      }
+
+      //
+      // create WALLS around the shape
+      // 
+
+      // in case we terminated because of maximum size, concatenate both lists (together, they hold all the points)
+      processed = processed.concat(borderPoints);
+      processed = this.shuffle(processed); // also, evaluate in random order
+
+      var roadPoints = [[], [], [], []];
+      var tablePoints = [];
+
+      // go through all points
+      for(var i = 0; i < processed.length; i++) {
+        var p = processed[i];
+
+        // check their neighbours
+        var dirs = [[1,0], [0,1], [-1,0], [0,-1]];
+        var numWalls = 0;
+        for(var d = 3; d >= 0; d--) {
+          // each neighbour that EXISTS, ignore it (can't place a wall there!)
+          var pX = p[0] + dirs[d][0], pY = p[1] + dirs[d][1];
+          if(this.map[pX][pY] == 5) {
+            continue;
+          }
+
+          numWalls++;
+
+          // otherwise, place a wall
+          // use index "d" to determine the rotation/placement of the wall
+          var wall;
+
+          if(d == 0 || d == 2) {
+            wall = this.add.sprite(pX * this.tileWidth, pY * this.tileHeight, 'staticAssets');
+          } else {
+            wall = this.wallBodies.create(pX * this.tileWidth, pY * this.tileHeight, 'staticAssets');
+          }
+          var secondWall = null;
+
+          wall.setOrigin(0.5, 1);
+          wall.y += 0.5*this.tileHeight;
+          wall.setFrame(4 + d);
+
+          if(d == 0 || d == 2) {
+            wall.setFrame(4);
+
+            // create an extra wall above us!
+            // NOTE: The second wall does not have an overlap body, because we can never be behind it
+            secondWall = this.add.sprite(wall.x, wall.y - this.tileHeight, 'staticAssets');
+            secondWall.setOrigin(0.5, 1);
+            secondWall.setFrame(6);
+
+            if(d == 0) {
+              wall.x -= (0.5)*this.tileWidth;
+              secondWall.x = wall.x;
+            } else {
+              wall.x += (0.5)*this.tileWidth;
+              secondWall.x = wall.x;
+            }
+
+            secondWall.setScale(4,4);
+            secondWall.depth = wall.y;
+
+          } else if(d == 1) {
+            wall.y -= this.tileHeight;
+          }
+
+          wall.depth = wall.y;
+          wall.setScale(4,4);
+
+          var wallActual = this.wallBodiesActual.create(wall.x, wall.y, null);
+          wallActual.displayWidth = wall.displayWidth;
+          wallActual.displayHeight = wall.displayHeight * (1/4)
+
+          if(d == 0 || d == 2) {
+            wallActual.displayWidth = (1/5) * wall.displayWidth;
+            wallActual.displayHeight = wall.displayHeight;
+            //wallActual.y = wall.y - (0.5 - (1/8))*this.tileHeight;
+          } else {
+
+            // what's this? well, side walls (vertical) do not have an overlap body
+            // so ONLY refresh the (original overlap) body if d != 0 and d != 2
+            wall.refreshBody();
+          }
+
+          wallActual.setOrigin(0.5, 1);
+          wallActual.refreshBody();
+          wallActual.setVisible(false);
+          wall.myActual = wallActual;
+
+          if(d == 0 || d == 2) {
+            var secondWallActual = this.wallBodiesActual.create(secondWall.x, secondWall.y, null)
+            secondWallActual.displayWidth = (1/5) * wall.displayWidth;
+            secondWallActual.displayHeight = (1/4)*wall.displayHeight;
+            secondWallActual.setOrigin(0.5, 1);
+            secondWallActual.refreshBody();
+            secondWallActual.setVisible(false);
+
+            secondWall.myActual = secondWallActual;
+          }
+
+          
+
+          if(this.map[pX][pY] == 0) {
+            // save that there's a possible road point in this direction
+            // AND which wall we'd need to remove to get there
+            roadPoints[d].push( [p[0], p[1], wall, secondWall] );
+          }
+        }
+
+        if(numWalls > 0) {
+          tablePoints.push(p);
+        }
+      }
+
+      // go through some roadPoints, shuffled 
+      // (but don't actually shuffle it, otherwise we lose the direction)
+      var numOpenings = 2;
+      var curOpenings = 0;
+      var curCounter = 0;
+      var chosenOpenings = [];
+      while(curOpenings < numOpenings && roadPoints.length > 0) {
+        if(roadPoints[curCounter] == null) { continue; }
+        curCounter = (curCounter + 1) % 4;
+
+        // skip directions randomly
+        if(Math.random() <= 0.75) { continue; }
+
+        // pick a random point
+        // also REMOVE it from the list, so it's not used twice
+        var rP = roadPoints[curCounter].splice(Math.floor(Math.random() * roadPoints[curCounter].length), 1)[0];
+
+        var dirs = [[1,0], [0,1], [-1,0], [0,-1]];
+        var finalDir = (curCounter+2)%4; // again, reversed
+        
+        // if this road would be impossible (edge of map), don't do it
+        // NOTE: Should already be checked when ADDING possible roads
+        /*if(this.map[ rP[0] + dirs[finalDir][0] ][rP[1] + dirs[finalDir[1]] ] == -1) {
+          continue;
+        }*/
+
+        // destroy the wall
+        // (and the extra wall, if necessary)
+        rP[2].myActual.destroy();
+        rP[2].destroy();
+        if(rP[3] != null) { rP[3].myActual.destroy(); rP[3].destroy(); }
+
+        // remember the opening we chose, so we make sure not to place something there (like a table)
+        chosenOpenings.push([rP[0], rP[1]]);
+
+        // extend the road in the specificed direction
+        this.extendRoad(rP[0], rP[1], dirs, finalDir);
+
+        curOpenings++;
+      }
+
+      //
+      // place tables in the work space
+      // grab randomly from possible table points, don't allow tables at openings
+      //
+      var numTables = 5;
+      for(var i = 0; i < numTables; i++) {
+        if(tablePoints.length <= 0) { break; }
+
+        var p = tablePoints.splice(Math.floor(Math.random() * tablePoints.length), 1)[0];
+
+        // if it's an opening, continue, but decrease iterator
+        var isOpening = false;
+        for(var o = 0; o < chosenOpenings.length; o++) {
+          if(chosenOpenings[o][0] == p[0] && chosenOpenings[o][1] == p[1]) {
+            isOpening = true;
+            break;
+          }
+        }
+        if(isOpening) { i--; continue; }
+
+        var table = this.createTable(p[0], p[1]);
+      }
+
+      //
+      // once we have our shape, we must fill it
+      // 1) determine the edges of the shape; place WALLS there
+      // 2) leave several spots open; these are doors so extend ROADS to them.
+      // 3) Any cell that was used for a wall, can be turned into a table => to ensure minimum of X tables, pick randomly from list
+      //
+
+      // finally, add to existing workspaces
+      this.existingWorkspaces.push({ 'x': x, 'y': y });
+    },
+
+    createTable(x, y) {
+      // create the table body with right size and all
+      var table = this.tableBodies.create(x * this.tileWidth, y * this.tileHeight, 'staticAssets');
+
+      table.displayWidth = table.displayHeight = this.tileWidth;
+      table.setSize(this.tileWidth, this.tileWidth).refreshBody();
+      table.setFrame(1);
+      table.id = this.runningID++;
+
+      // initialize tables empty
+      // a table can only contain ONE type of thing => if you add more ingredients, they try to combine into a pizza
+      table.myContent = -1;
+
+      // create sprite that will show whatever the table contains
+      table.myContentSprite = this.add.sprite(table.x, table.y - table.displayHeight, 'ingredients');
+      table.myContentSprite.setScale(4,4);
+      table.myContentSprite.setVisible(false);
+      //table.myContentSprite.setFrame(table.myContent);
+
+      table.depth = table.y;
+      table.myContentSprite.depth = table.depth;
+
+      // animate this sprite (just softly go up and down, repeat infinitely)
+      var tween = this.tweens.add({
+          targets: table.myContentSprite,
+          y: { from: table.myContentSprite.y, to: table.myContentSprite.y - 16 },
+          ease: 'Linear',       // 'Cubic', 'Elastic', 'Bounce', 'Back'
+          duration: 1000,
+          repeat: -1,
+          yoyo: true
+      });
+
+      // 2 MEANS table
+      this.map[x][y] = 2;
+
+      return table
+    },
+
+    createRoomFloor(x,y) {
+      // draw the corresponding sprite at this location
+      var roomFloor = this.add.sprite(x * this.tileWidth, y * this.tileHeight, 'staticAssets');
+      roomFloor.tint = 0xFF0000;
+      roomFloor.setScale(4,4);
+      roomFloor.depth = -1;
+
+      // update map
+      // 5 MEANS workfloor
+      this.map[x][y] = 5;
+    },
+
+    startGame() {
+      var numPlayers = this.players.length;
+
+      // divide allergies randomly among players
+      // but only if we have more than a single player!
+      if(numPlayers > 1) {
+        var allergies = [0,1,2,3,4];
+        allergies = this.shuffle(allergies);
+
+        var counter = 0;
+        
+        var doneDividing = false
+        while(!doneDividing) {
+          // give the next player the next allergy in line
+          // modulo wrap both, for we don't know how long either must continue/repeat 
+          this.players[counter % numPlayers].myAllergies.push(allergies[counter % allergies.length]);
+
+          // we're done if every player has at least ONE thing and we've divided ALL allergies
+          counter++;
+          doneDividing = (counter >= numPlayers && counter >= allergies.length);
+        }
+
+        // finally, send out messages to all players to display their allergies!
+        for(var i = 0; i < numPlayers; i++) {
+          var p = this.players[i];
+          var msg = { 'type': 'allergies', 'val': p.myAllergies };
+          p.myPeer.send( JSON.stringify(msg) );
+        }
+      }
+
+      // resume the game state
+      this.scene.resume();
     },
 
     convertVectorToRotation(vec) {
@@ -1207,12 +1564,16 @@ var SceneA = new Phaser.Class({
 
       // now try to find a road to connect to in all other directions
       var path = [];
+      var bestPath = [];
       var foundRoad = false;
       for(var i = 0; i < dirs.length; i++) {
         var tempX = startX, tempY = startY;
         var d = dirs[i];
 
         // reset path and try again
+        if(path.length > 1) {
+          bestPath = path;
+        }
         path = [];
 
         // continue searching until we find some obstacle
@@ -1243,6 +1604,11 @@ var SceneA = new Phaser.Class({
           tempX += d[0];
           tempY += d[1];
 
+          // check if this is a valid move before adding it to the path!
+          if(this.map[tempX][tempY] != 0) {
+            break;
+          }
+
           path.push({ 'x': tempX, 'y': tempY })
 
         } while(this.map[tempX][tempY] == 0);
@@ -1251,6 +1617,11 @@ var SceneA = new Phaser.Class({
         if(foundRoad) {
           break;
         }
+      }
+
+      // if the path has no length, use the best found path instead
+      if(path.length <= 0) {
+        path = bestPath;
       }
 
       // and add the first road back
@@ -1336,6 +1707,7 @@ var SceneA = new Phaser.Class({
       };
       var fbText = this.add.text(x, y, msg, config);
       fbText.setOrigin(0.5, 0.5);
+      fbText.depth = initiator.depth;
 
       // tween it upwards (and fade out)
       var tween = this.tweens.add({
@@ -1372,6 +1744,12 @@ var SceneA = new Phaser.Class({
         return;
       }
 
+      if(this.hasAllergy(player, ingredientType)) {
+        this.ingameFeedback(player, 'You are allergic to this!');
+        console.log("Error: tried to pick up ingredient you are allergic to");
+        return;
+      }
+
       // update our backpack
       var result = this.updateIngredient(peer, ingredientType, 1);
 
@@ -1388,6 +1766,29 @@ var SceneA = new Phaser.Class({
 
       // send response back (simply an UPDATE on the table status)
       this.sendTableMessage(player, player.currentTable);
+    },
+
+    hasAllergy(player, ing) {
+      // decompose the ingredient
+      var decIng = this.decomposeIngredient(ing);
+
+      // check each existing ingredient against the player allergies
+      var myAll = player.myAllergies;
+      for(var i = 0; i < decIng.length; i++) {
+        // if the ingredient doesn't exist, ignore it
+        if(decIng[i] == 0) { continue; }
+
+        // if it does, check all the player's allergies
+        // if this number is in there, we are allergic
+        for(var a = 0; a < myAll.length; a++) {
+          if(i == myAll[a]) {
+            return true;
+          }
+        }
+      }
+
+      // if all checks fail, we are NOT allergic
+      return false;
     },
 
     convertToBinary(num) {
@@ -1605,6 +2006,12 @@ var SceneA = new Phaser.Class({
         return;
       }
 
+      if(this.hasAllergy(player, buyInfo.ing)) {
+        this.ingameFeedback(player, 'You are allergic to this!');
+        console.log("Error: tried to buy ingredient you are allergic to");
+        return;
+      }
+
       // add ingredient(s) to the player
       var result = this.updateIngredient(peer, buyInfo.ing, 1);
 
@@ -1701,8 +2108,9 @@ var SceneA = new Phaser.Class({
         var p = this.players[i];
 
         // match position of player with position of their actual body
+        // offset Y _slightly_ (+1) to make colliding with tables easier
         p.x = p.actualBody.x;
-        p.y = p.actualBody.y - p.displayHeight + (0.25*0.5)*p.displayHeight;
+        p.y = p.actualBody.y - p.displayHeight + (0.25*0.5)*p.displayHeight + 1;
 
         // match shadow position
         p.shadowSprite.x = p.x;
@@ -1817,7 +2225,9 @@ var SceneA = new Phaser.Class({
       var actualBody = this.playerBodiesActual.create(randX, randY, null);
       actualBody.setVisible(false);
 
-      actualBody.setSize(11, 4);
+      // actual size = 11,16 => body size = 11,4 => changed that to 9,3 just to be sure
+
+      actualBody.setSize(9, 3);
       actualBody.setScale(scaleFactor);
       actualBody.setOrigin(0.5, 1.0);
 
@@ -1860,6 +2270,8 @@ var SceneA = new Phaser.Class({
 
       newPlayer.obstructingObjects = [];
 
+      newPlayer.myAllergies = [];
+
       //
       // ingredients/backpack container
       //
@@ -1890,6 +2302,14 @@ var SceneA = new Phaser.Class({
       var text = this.add.text(0, 0, peer.curClientUsername, config);
       text.setOrigin(0.5);
       newPlayer.usernameText = text;
+
+      // send player its player index, if it's the first player
+      // TO DO: Perhaps change this to send player number to ALL players, then just listen (smartphone side) to see if it's 0
+      var playerIndex = (this.players.length - 1)
+      if(playerIndex == 0) {
+        var msg = { 'type': 'lobby', 'ind': playerIndex };
+        peer.send( JSON.stringify(msg) );
+      }
     },
 
     updatePlayer: function(peer, vec) {

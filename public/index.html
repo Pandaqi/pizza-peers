@@ -128,6 +128,17 @@
         align-items: center;
         justify-content: center;
       }
+
+      #allergyInterface {
+        pointer-events: none;
+      }
+
+      #allergyInterface .allergyDiv {
+        display: flex;
+        align-content: center;
+        align-items: center;
+        justify-content: center;
+      }
     </style>
   </head>
   <body>
@@ -153,9 +164,9 @@
     </main>
 
     <main>
-      <div id="messageStream">
+      <div id="allergyInterface"></div>
 
-      </div>
+      <div id="messageStream"></div>
 
       <div id="messageForm" style="display:none; margin-bottom:50px;">
         <textarea id="messageContent" style="width:100%;"></textarea>
@@ -170,6 +181,7 @@
     <div id="phaser-game">
     </div>
 
+    <!-- Image that shows where you're moving in the game (mobile interface) -->
     <img src="assets/movementArrow.png" id="movementArrow" />
 
     <!-- Peer to Peer support -->

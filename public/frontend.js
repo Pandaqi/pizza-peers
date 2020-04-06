@@ -231,7 +231,6 @@ function initializeNetwork() {
       // yay, we're connected!
       console.log('PLAYER CONNECTED');
 
-      
       // if we were the initiator of a connection, we are a PLAYER
       if(initiator) {
         // initialize our interface!
@@ -248,6 +247,8 @@ function initializeNetwork() {
     })
 
     peer.on('data', function(data) {
+      console.log("RECEIVED START GAME MESSAGE");
+
       // parse the message
       data = JSON.parse(data);
 
@@ -265,8 +266,6 @@ function initializeNetwork() {
       // the first mobile phone to connect, receives this lobby event
       // it creates a button that, once clicked, actually starts the game
       if(data.type == 'lobby') {
-        var dynInt = document.getElementById('dynamicInterface');
-
         // remember we're vip
         peer.isVIP = true;
 
@@ -274,11 +273,13 @@ function initializeNetwork() {
         var button = document.createElement("button");
         button.classList.add('buyButton');
         button.innerHTML = "<span>Start the game! (Press this once everyone's connected)</span>";
-        dynInt.appendChild(button);
+        document.getElementById('dynamicInterface').appendChild(button);
 
         button.addEventListener ("click", function() {
           // remove button again
-          dynInt.innerHTML = '';
+          document.getElementById('dynamicInterface').innerHTML = '';
+
+          console.log("Sent message to start the game");
 
           // send message to start the game
           var msg = { 'type': 'start-game' }
@@ -296,7 +297,7 @@ function initializeNetwork() {
 
       if(data.type == 'game-end') {
         var dynInt = document.getElementById('dynamicInterface');
-        dynInt.innerHTML = 'GAME OVER! ';
+        dynInt.innerHTML = 'GAME OVER!';
 
         // if we are the vip, get the button to restart
         if(peer.isVIP) {
@@ -622,7 +623,7 @@ var SceneA = new Phaser.Class({
 
     function SceneA()
     {
-        Phaser.Scene.call(this, { key: 'sceneA' });
+        Phaser.Scene.call(this, { key: 'sceneA', active: true });
 
         this.players = [];
     },
@@ -642,11 +643,14 @@ var SceneA = new Phaser.Class({
        this.load.spritesheet('buildings', 'assets/buildings.png', { frameWidth: 8, frameHeight: 11 });
 
        this.load.spritesheet('orderMark', 'assets/orderMark.png', { frameWidth: 8, frameHeight: 12 });
-       this.load.spritesheet('hourglass', 'assets/hourglass.png', { frameWidth: 16, frameHeight: 16});
+       this.load.spritesheet('hourglass', 'assets/hourGlass.png', { frameWidth: 16, frameHeight: 16});
 
     },
 
     create: function() {
+      // initialize variables for game start/restart management
+      this.beingRestarted = false;
+
       // add room code at bottom right
       var roomText = this.add.text(this.canvas.width - 10, this.canvas.height - 10, connection.room);
       var styleConfig = {
@@ -1493,6 +1497,8 @@ var SceneA = new Phaser.Class({
     startGame() {
       var numPlayers = this.players.length;
 
+      console.log("START GAAMMEEE");
+
       // divide allergies randomly among players
       // but only if we have more than a single player!
       if(numPlayers > 1) {
@@ -1500,7 +1506,6 @@ var SceneA = new Phaser.Class({
         allergies = this.shuffle(allergies);
 
         var counter = 0;
-        
         var doneDividing = false
         while(!doneDividing) {
           // give the next player the next allergy in line
@@ -1520,9 +1525,11 @@ var SceneA = new Phaser.Class({
         }
       }
 
+      console.log("RECEIVED MESSAGE TO START THE GAME");
+
       // update money to match player count
       // (5 extra bucks per person, just to make things quicker/easier at the start)
-      this.updateMoney(this.players.length*5, null);
+      this.updateMoney(numPlayers*5, null);
 
       // send game over scene to the back 
       GAME.scene.keys.gameOver.scene.sleep();
@@ -2296,7 +2303,7 @@ var SceneA = new Phaser.Class({
 
       // update text
       this.timeText.text = minutes+':'+seconds;
-      
+
       // if timer is below 60, remind players that time is almost up
       if(this.timeLeft <= 60) {
         this.timeSprite.anims.play('hourglass');
@@ -2677,6 +2684,7 @@ var GameOver = new Phaser.Class({
 
     create: function() {
       this.canvas = this.sys.game.canvas;
+      this.oldPlayers = [];
 
       // create background screen (that "pops up" on game over)
       var bgScreen = this.add.sprite(0.5*this.canvas.width, 0.5*this.canvas.height, 'gameOver');

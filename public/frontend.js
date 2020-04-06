@@ -648,6 +648,8 @@ var SceneA = new Phaser.Class({
        this.load.spritesheet('orderMark', 'assets/orderMark.png', { frameWidth: 8, frameHeight: 12 });
        this.load.spritesheet('hourglass', 'assets/hourGlass.png', { frameWidth: 16, frameHeight: 16});
 
+       this.load.spritesheet('vehicles', 'assets/vehicles.png', { frameWidth: 16, frameHeight: 16 });
+
     },
 
     create: function() {
@@ -754,6 +756,13 @@ var SceneA = new Phaser.Class({
             repeat: -1
         });
 
+      this.anims.create({
+            key: 'drive',
+            frames: this.anims.generateFrameNumbers('vehicles', { start: 0, end: 1 }),
+            frameRate: 10,
+            repeat: -1
+        });
+
       // 
       // initialize texture that will hold all shadows
       //
@@ -785,9 +794,11 @@ var SceneA = new Phaser.Class({
 
           // create a BORDER around the map
           // this prevents awkward placement of tables, ingredient locations, etc.
+
+          // ALSO make the border wider at the top, so we have room to display stuff above buildings and tables
           if(x == 0 || x == (this.mapWidth - 1)) {
             value = -1;
-          } else if(y == 0 || y == (this.mapHeight - 1)) {
+          } else if(y <= 2 || y == (this.mapHeight - 1)) {
             value = -1;
           }
 
@@ -1081,6 +1092,51 @@ var SceneA = new Phaser.Class({
       // collide and overlap with player(s)
       this.physics.add.collider(this.playerBodiesActual, this.natureBodiesActual); 
       this.physics.add.overlap(this.playerBodies, this.natureBodies, this.playerBehindBuilding, null, this);
+
+      //
+      // 6) Place some vehicles around the world!
+      //
+      var numVehicles = 5;
+      //this.vehicleBodies = this.physics.add.group();
+      this.vehicleBodiesActual = this.physics.add.group();
+
+      for(var i = 0; i < numVehicles; i++) {
+        // find a stretch of road
+        var x,y;
+        var margin = 0;
+        do {
+          x = Math.floor(Math.random() * (this.mapWidth - margin*2)) + margin;
+          y = Math.floor(Math.random() * (this.mapHeight - margin*2)) + margin;
+        } while( this.map[x][y] != 3 );
+
+        // create new vehicle
+        var newVehicle = this.vehicleBodiesActual.create(x * this.tileWidth, y * this.tileHeight, 'vehicles');
+        newVehicle.setSize(newVehicle.displayWidth, newVehicle.displayHeight * (1/4), false);
+        newVehicle.body.offset.y = 0.75*newVehicle.displayHeight;
+
+        newVehicle.displayWidth *= 2;
+        newVehicle.displayHeight *= 2;
+        newVehicle.setOrigin(0.5, 1);
+        newVehicle.anims.play('drive');
+
+        // create its actual body
+        /*
+        var vehicleBody = this.vehicleBodiesActual.create(newVehicle.x, newVehicle.y, null);
+        vehicleBody.setVisible(false);
+        vehicleBody.displayWidth = newVehicle.displayWidth;
+        vehicleBody.displayHeight = newVehicle.displayHeight * (1/4);
+        */
+      }
+
+      // collide vehicles with EVERYTHING, just like players
+      this.physics.add.collider(this.vehicleBodiesActual, this.wallBodiesActual);
+      this.physics.add.collider(this.vehicleBodiesActual);
+      this.physics.add.collider(this.vehicleBodiesActual, this.natureBodiesActual);
+      this.physics.add.collider(this.vehicleBodiesActual, this.tableBodiesActual);
+
+      // finally, collide vehicles with players, and provide a callback
+      // TO DO: Add callback, allow players to mount and dismount vehicles
+      this.physics.add.collider(this.playerBodiesActual, this.vehicleBodiesActual);
 
       //
       // Initialize the delivery system!
@@ -1620,6 +1676,8 @@ var SceneA = new Phaser.Class({
     },
 
     grabRandomBuilding() {
+      // grab a random building, ignoring any building occupied with other stuff
+      // (either they're already ordering/waiting, or it's an ingredient location, or something like that)
       var randBuilding = null;
       do {
         randBuilding = this.buildingBodies.getChildren()[ Math.floor(Math.random() * this.buildingBodies.getChildren().length ) ];
@@ -1992,7 +2050,8 @@ var SceneA = new Phaser.Class({
         }
       }
 
-      // you can never be allergic for combined pizzas when in 2-3 player mode
+      // you can never be allergic for combined pizzas when in 1-3 player mode
+      // (otherwise you get a lot of situations where you just can not possibly deliver something)
       if(this.players.length <= 3 && numElementsInIngredient > 1) {
         isAllergic = false;
       }
@@ -2167,6 +2226,16 @@ var SceneA = new Phaser.Class({
       // Also change the visual state to match (show the current wanted pizza type)
       b.myOrderSprite.setVisible(true);
       b.myOrderSprite.setFrame(b.myOrder);
+
+      // animate this sprite (just softly go up and down, repeat infinitely)
+      var tween = this.tweens.add({
+          targets: b.myOrderSprite,
+          y: { from: b.myOrderSprite.y, to: b.myOrderSprite.y - 16 },
+          ease: 'Linear',       // 'Cubic', 'Elastic', 'Bounce', 'Back'
+          duration: 1000,
+          repeat: -1,
+          yoyo: true
+      });
 
       // And hide/stop the hour glass, just in case it was busy doing stuff
       b.myHourglass.setVisible(false);
@@ -2524,9 +2593,13 @@ var SceneA = new Phaser.Class({
       var color = new Phaser.Display.Color();
       color.random(50);
 
-      var margin = 50
-      var randX = Phaser.Math.Between(margin, this.canvas.width - margin), 
-          randY = Phaser.Math.Between(margin, this.canvas.height - margin);
+      var x,y
+      do {
+        x = Math.floor(Math.random() * this.mapWidth);
+        y = Math.floor(Math.random() * this.mapHeight);
+      } while( this.map[x][y] != 0);
+
+      var randX = x * this.tileWidth, randY = y * this.tileHeight;
 
       // create new player (use graphics as base, turn into sprite within player group)
       var newPlayer = this.playerBodies.create(randX, randY, 'dude');
@@ -2772,7 +2845,7 @@ function startPhaser() {
     physics: {
         default: 'arcade',
         arcade: { 
-          debug: false,
+          debug: true,
         }
     },
     pixelArt: true,

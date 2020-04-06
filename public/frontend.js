@@ -1009,7 +1009,7 @@ var SceneA = new Phaser.Class({
         // add order mark (sufficiently above the building, so it looks good and clearly visible)
         var orderMark = this.add.sprite(building.x, building.y - this.tileHeight*2.25, 'orderMark');
         orderMark.setVisible(false);
-        orderMark.depth = building.depth;
+        orderMark.depth = building.depth + 0.01;
         building.myOrderMark = orderMark;
 
         orderMark.setScale(4,4);
@@ -1018,7 +1018,7 @@ var SceneA = new Phaser.Class({
         var orderSprite = this.add.sprite(building.x, building.y - this.tileHeight*2.25, 'ingredients');
         orderSprite.setVisible(false);
         orderSprite.setScale(4,4);
-        orderSprite.depth = building.depth;
+        orderSprite.depth = building.depth + 0.01;
 
         building.myOrderSprite = orderSprite;
         building.myOrderID = 0;
@@ -1129,6 +1129,7 @@ var SceneA = new Phaser.Class({
       }
 
       // collide vehicles with EVERYTHING, just like players
+      this.physics.add.collider(this.vehicleBodiesActual, this.boundBodies);
       this.physics.add.collider(this.vehicleBodiesActual, this.wallBodiesActual);
       this.physics.add.collider(this.vehicleBodiesActual);
       this.physics.add.collider(this.vehicleBodiesActual, this.natureBodiesActual);
@@ -1695,8 +1696,11 @@ var SceneA = new Phaser.Class({
         this.addEventToQueue('placeOrder', randTime, { 'building': randBuilding });
 
         // if we already have too many orders, don't create a new one
-        // otherwise, keep track of the currently outstanding orders
+        // otherwise, keep track of the currently outstanding orders (which is both ORDERING and WAITING)
+        // NOTE: randomly, the maximum number of orders might increase to be ONE more than the player count (for extra challenge!)
         var maxOrders = this.players.length;
+        maxOrders += Math.floor(Math.random());
+
         if(this.curOutstandingOrders >= maxOrders) {
           return;
         }
@@ -2209,9 +2213,6 @@ var SceneA = new Phaser.Class({
       // change building state from "ordering" to "waiting"
       b.myStatus = 'waiting';
 
-      // remove this order from the accumulative total
-      this.curOutstandingOrders--;
-
       // plan the delivery ran out event
       // you have one minute for delivery, then 30 seconds before it's definitely over
       // NO, time depends on complexity of the order; 15 seconds per ingredient
@@ -2306,6 +2307,9 @@ var SceneA = new Phaser.Class({
       // And hide/stop the hour glass, just in case it was busy doing stuff
       b.myHourglass.setVisible(false);
       b.myHourglass.anims.stop();
+
+      // remove this order from the accumulative total
+      this.curOutstandingOrders--;
 
       // reset status to none (we have our thing, stop whining about it)
       b.myStatus == 'none';

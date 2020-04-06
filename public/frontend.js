@@ -295,7 +295,8 @@ function initializeNetwork() {
       }
 
       if(data.type == 'game-end') {
-        document.getElementById('dynamicInterface').innerHTML = 'GAME OVER! ';
+        var dynInt = document.getElementById('dynamicInterface');
+        dynInt.innerHTML = 'GAME OVER! ';
 
         // if we are the vip, get the button to restart
         if(peer.isVIP) {
@@ -619,7 +620,7 @@ var SceneA = new Phaser.Class({
 
     initialize:
 
-    function SceneA ()
+    function SceneA()
     {
         Phaser.Scene.call(this, { key: 'sceneA' });
 
@@ -667,7 +668,7 @@ var SceneA = new Phaser.Class({
       this.numFailedOrders = 0;
       var margin = 10;
       for(var i = 0; i < this.maxAllowedFails; i++) {
-        var newSprite = this.add.sprite(this.canvas.width - 5*(32 + margin) + i*(32 + margin), margin, 'staticAssets');
+        var newSprite = this.add.sprite(this.canvas.width - this.maxAllowedFails*(32 + margin) + i*(32 + margin), margin, 'staticAssets');
         newSprite.setFrame(8);
         newSprite.setOrigin(1, 0);
         newSprite.setScale(4,4);
@@ -802,6 +803,7 @@ var SceneA = new Phaser.Class({
       this.wallBodiesActual = this.physics.add.staticGroup();
 
       this.tableBodies = this.physics.add.staticGroup();
+      this.tableBodiesActual = this.physics.add.staticGroup();
 
       for(var i = 0; i < numWorkspaces; i++) {
         this.createWorkspace();
@@ -812,6 +814,13 @@ var SceneA = new Phaser.Class({
 
       // collide players and walls (because, well, you can't walk through walls)
       this.physics.add.collider(this.playerBodiesActual, this.wallBodiesActual);
+
+      // overlap players and tables (for see through)
+      // NOTE: Turned this off, for it isn't really necessary and it looks ugly
+      //this.physics.add.overlap(this.playerBodies, this.tableBodies, this.playerBehindBuilding, null, this);
+
+      // make player and tables collide
+      this.physics.add.collider(this.playerBodiesActual, this.tableBodiesActual, this.playerAtTable, null, this);
       
 
       //
@@ -898,9 +907,6 @@ var SceneA = new Phaser.Class({
       
       // finally, check for overlap between players and ingredients
       this.physics.add.overlap(this.playerBodies, this.ingredientBodies, this.playerAtIngredient, null, this);
-
-      // make player and tables collide
-      this.physics.add.collider(this.playerBodiesActual, this.tableBodies, this.playerAtTable, null, this);
 
       //
       // 4) Place some buildings around the map
@@ -1083,36 +1089,61 @@ var SceneA = new Phaser.Class({
 
 
       //
-      // add variables for general counters (money, ingredients, etc.)
+      // add variables for general counters (money, timer, etc.)
       // also create their text fields and initialize their values
       //
-      this.money = 100;
+
+      // timer
+      var moneyX = 30, moneyY = 30
+      var timeSprite = this.add.sprite(moneyX, moneyY, 'hourglass');
+      timeSprite.setScale(3,3);
+      timeSprite.depth = this.canvas.height * 2;
+      this.timeSprite = timeSprite;
 
       styleConfig.fontSize = 48;
-      styleConfig.color = '#FFAAFF';
-
-      styleConfig.stroke = '#330033';
+      styleConfig.color = '#EEC39A';
+      styleConfig.stroke = '#210F0C';
       styleConfig.strokeThickness = 5;
 
-      var moneyX = 30, moneyY = 30
-      var moneySprite = this.add.sprite(moneyX, moneyY, 'moneyAnim');
+      this.timeText = this.add.text(moneyX + 20, moneyY, '5:00', styleConfig);
+      this.timeText.setOrigin(0, 0.5);
+      this.timeText.depth = this.canvas.height * 2;
+
+      this.timeLeft = 60 * 5 + 1;
+      this.updateTimer();
+
+      // VERY IMPORTANT: Actually start the timer (wouldn't want to forget that :p)
+      this.time.addEvent({ delay: 1000, callback: this.updateTimer, callbackScope: this, loop: true });
+
+
+      // money
+      var offsetFromTimer = 50
+      var moneySprite = this.add.sprite(moneyX, moneyY + offsetFromTimer, 'moneyAnim');
       moneySprite.setScale(4, 4)
       moneySprite.anims.play('moneyRotate');
       moneySprite.depth = this.canvas.height*2;
 
-      this.moneyText = this.add.text(moneyX + 20, moneyY, 'M', styleConfig);
+      styleConfig.fontSize = 48;
+      styleConfig.color = '#FFAAFF';
+      styleConfig.stroke = '#330033';
+      styleConfig.strokeThickness = 5;
+
+      this.moneyText = this.add.text(moneyX + 20, moneyY + offsetFromTimer, 'M', styleConfig);
       this.moneyText.setOrigin(0, 0.5);
       this.moneyText.depth = this.canvas.height * 2;
 
+      this.money = 25;
       this.updateMoney(0, null);
 
       //
       // finally, determine what to do, depending on if it's a restart or not
       //
       if(this.beingRestarted) {
+        var oldPlayers = this.scene.get('gameOver').oldPlayers;
+
         // go through all old players and add them into the game again
-        for(var i = 0; i < this.oldPlayers.length; i++) {
-          this.addPlayer(this.oldPlayers[i].peer);
+        for(var i = 0; i < oldPlayers.length; i++) {
+          this.addPlayer(oldPlayers[i].myPeer);
         }
 
         // call the startGame() function
@@ -1251,6 +1282,11 @@ var SceneA = new Phaser.Class({
           wall.depth = wall.y;
           wall.setScale(4,4);
 
+          // add wall shadow
+          var offsetX = 5, offsetY = 0;
+          this.shadowGraphics.fillRect(wall.x - 0.5*wall.displayWidth - offsetX, wall.y - wall.displayHeight + offsetY, wall.displayWidth, wall.displayHeight);
+
+          // now create the ACTUAL body that will function as this wall
           var wallActual = this.wallBodiesActual.create(wall.x, wall.y, null);
           wallActual.displayWidth = wall.displayWidth;
           wallActual.displayHeight = wall.displayHeight * (1/4)
@@ -1291,7 +1327,9 @@ var SceneA = new Phaser.Class({
           }
         }
 
-        if(numWalls > 0) {
+        // only allow tables with ALL empty space around them
+        // TO DO: Alternative is allowing tables when pushed up against a wall, or some more complex check that runs through all points
+        if(numWalls == 0) {
           tablePoints.push(p);
         }
       }
@@ -1302,8 +1340,9 @@ var SceneA = new Phaser.Class({
       var curOpenings = 0;
       var curCounter = 0;
       var chosenOpenings = [];
-      while(curOpenings < numOpenings && roadPoints.length > 0) {
+      while(curOpenings < numOpenings) {
         if(roadPoints[curCounter] == null) { continue; }
+        if(roadPoints[curCounter].length <= 0) { continue; } // TO DO: Check if ALL roadPoints are exhausted
         curCounter = (curCounter + 1) % 4;
 
         // skip directions randomly
@@ -1373,11 +1412,12 @@ var SceneA = new Phaser.Class({
 
     createTable(x, y) {
       // create the table body with right size and all
-      var table = this.tableBodies.create(x * this.tileWidth, y * this.tileHeight, 'staticAssets');
+      var table = this.tableBodies.create(x * this.tileWidth, y * this.tileHeight, 'buildings');
 
-      table.displayWidth = table.displayHeight = this.tileWidth;
-      table.setSize(this.tileWidth, this.tileWidth).refreshBody();
-      table.setFrame(1);
+      table.y += 0.5*this.tileHeight;
+      table.setOrigin(0.5, 1);
+      table.setScale(4,4).refreshBody();
+      table.setFrame(28); // 28 = regular table, 29 = oven
       table.id = this.runningID++;
 
       // initialize tables empty
@@ -1390,7 +1430,8 @@ var SceneA = new Phaser.Class({
       table.myContentSprite.setVisible(false);
       //table.myContentSprite.setFrame(table.myContent);
 
-      table.depth = table.y;
+      // offset depth to make room for walls
+      table.depth = table.y - 2;
       table.myContentSprite.depth = table.depth;
 
       // animate this sprite (just softly go up and down, repeat infinitely)
@@ -1403,6 +1444,20 @@ var SceneA = new Phaser.Class({
           yoyo: true
       });
 
+      // add ACTUAL body
+      var tableBody = this.tableBodiesActual.create(table.x, table.y, null);
+
+      tableBody.setVisible(false);
+      tableBody.displayWidth = table.displayWidth;
+      tableBody.displayHeight = this.tileHeight;
+      tableBody.setOrigin(0.5, 1);
+      tableBody.refreshBody();
+
+      // connect the table SPRITE (with all the information, visual stuff, etc.)
+      // with its actual body
+      tableBody.myTable = table;
+
+      // add table to global map
       // 2 MEANS table
       this.map[x][y] = 2;
 
@@ -1426,7 +1481,7 @@ var SceneA = new Phaser.Class({
       this.beingRestarted = true;
 
       // copy players to backup variable; clear the actual array
-      this.oldPlayers = this.players;
+      this.scene.get('gameOver').oldPlayers = this.players;
       this.players = [];
 
       // restart this whole scene
@@ -1464,6 +1519,13 @@ var SceneA = new Phaser.Class({
           p.myPeer.send( JSON.stringify(msg) );
         }
       }
+
+      // update money to match player count
+      // (5 extra bucks per person, just to make things quicker/easier at the start)
+      this.updateMoney(this.players.length*5, null);
+
+      // send game over scene to the back 
+      GAME.scene.keys.gameOver.scene.sleep();
 
       // resume the game state
       this.scene.resume();
@@ -1796,6 +1858,7 @@ var SceneA = new Phaser.Class({
     },
 
     playerAtTable(player, table) {
+      // grab the actual player sprite, as "player" is the BODY (different things)
       player = player.myPlayer;
 
       // if this player is already using this table, ignore the rest of this
@@ -1804,9 +1867,9 @@ var SceneA = new Phaser.Class({
       }
 
       // if we just entered the collision, register the table and send a message
-      player.currentTable = table;
+      player.currentTable = table.myTable;
       
-      this.sendTableMessage(player, table);
+      this.sendTableMessage(player, table.myTable);
     },
 
     sendTableMessage(player, table) {
@@ -1822,8 +1885,6 @@ var SceneA = new Phaser.Class({
         var msg = { 'type': 'table', 'content': table.myContent, 'backpack': p.myIngredients };
         p.myPeer.send( JSON.stringify(msg) );
       }
-
-
     },
 
     ingameFeedback(initiator, msg, color = "#FF0000") {
@@ -2077,7 +2138,8 @@ var SceneA = new Phaser.Class({
       // you have one minute for delivery, then 30 seconds before it's definitely over
       // NO, time depends on complexity of the order; 15 seconds per ingredient
       var deliveryTime = b.myOrderIngredientNum * 15 * 1000;
-      this.addEventToQueue('almostFailed', deliveryTime, { 'building': b, 'id': b.currentID, 'statusCheck': 'waiting' });
+      console.log("PLANNING an almostFailed event, delta time is " + deliveryTime);
+      this.addEventToQueue('almostFailed', deliveryTime, { 'building': b, 'id': b.myOrderID, 'statusCheck': 'waiting' });
 
       // remove exclamation mark
       b.myOrderMark.setVisible(false);
@@ -2100,9 +2162,11 @@ var SceneA = new Phaser.Class({
       b.myStatus = 'none';
       this.curOutstandingOrders--;
 
+      b.myOrderSprite.setVisible(false);
       b.myOrderMark.setVisible(false);
       b.myArea.setVisible(false);
       b.myArea.enable = false;
+
       b.myHourglass.setVisible(false);
       b.myHourglass.anims.stop();
 
@@ -2118,7 +2182,7 @@ var SceneA = new Phaser.Class({
 
       // if we've failed too many times, go to game over - we lost
       if(this.numFailedOrders >= this.maxAllowedFails) {
-        this.gameOver(false);
+        this.gameOver(false, 'too many strikes');
       }
     },
 
@@ -2200,7 +2264,7 @@ var SceneA = new Phaser.Class({
       var result = this.updateMoney(-buyInfo.price, player);
     },
 
-    gameOver: function(win) {
+    gameOver: function(win, reason) {
       this.scene.pause();
 
       // Clean the screen of all players
@@ -2210,8 +2274,39 @@ var SceneA = new Phaser.Class({
         this.players[i].myPeer.send( JSON.stringify(msg) );
       }
 
-      // TO DO: Overlay game over scene
-      //        Tell players what happened (why they won/lost)
+      // Overlay game over scene
+      // (bring to top, update screen)
+      var goScene = GAME.scene.keys.gameOver;
+      goScene.scene.wake();
+
+      // also tell players the reason (why they won/lost)
+      goScene.setScreen(win, reason);
+    },
+
+    updateTimer: function() {
+      this.timeLeft--;
+
+      // convert number of seconds to more readable time format: MM:SS (minutes:seconds)
+      // (with leading zeroes)
+      var minutes = Math.floor(this.timeLeft / 60);
+      var seconds = this.timeLeft % 60;
+
+      if (minutes < 10) {minutes = "0"+minutes;}
+      if (seconds < 10) {seconds = "0"+seconds;}
+
+      // update text
+      this.timeText.text = minutes+':'+seconds;
+      
+      // if timer is below 60, remind players that time is almost up
+      if(this.timeLeft <= 60) {
+        this.timeSprite.anims.play('hourglass');
+      }
+
+      // if timer is below 0, the round is over!
+      // go to game over, display congratulatory message, yay!
+      if(this.timeLeft <= 0) {
+        this.gameOver(true, 'success');
+      }
     },
 
     updateMoney: function(dm, initiator, penalty = false) {
@@ -2219,7 +2314,7 @@ var SceneA = new Phaser.Class({
       if( (this.money + dm) < 0) {
         // if it's a PENALTY, we lost the game!
         if(penalty) {
-          this.gameOver(false);
+          this.gameOver(false, 'no money');
 
         // otherwise, just give feedback and don't let the action through
         } else {
@@ -2330,7 +2425,7 @@ var SceneA = new Phaser.Class({
 
         // set text below the players 
         p.usernameText.x = p.x;
-        p.usernameText.y = p.y + 0.5*p.displayHeight + 12;
+        p.usernameText.y = p.y + 0.5*p.displayHeight;
 
         // check if we've STOPPED overlapping our ingredient location
         if(p.currentIngLocation != null) {
@@ -2348,7 +2443,13 @@ var SceneA = new Phaser.Class({
         // check if we've STOPPED colliding with a table
         // if we have a table saved, but we're not colliding with anything, we just EXITED the collision
         if(p.currentTable != null) {
+          // highlight table
+          p.currentTable.setFrame(30);
+
           if(!this.checkOverlap(p, p.currentTable)) {
+            // reset table sprite
+            p.currentTable.setFrame(28);
+
             // reset variables
             p.currentTable = null
 
@@ -2498,16 +2599,19 @@ var SceneA = new Phaser.Class({
             fill: "#000000"
           };
 
-      var text = this.add.text(0, 0, peer.curClientUsername, config);
+      var tX = newPlayer.x, tY = newPlayer.y + 0.5*newPlayer.displayHeight;
+      var text = this.add.text(tX, tY, peer.curClientUsername, config);
       text.setOrigin(0.5);
       newPlayer.usernameText = text;
 
       // send player its player index, if it's the first player
       // TO DO: Perhaps change this to send player number to ALL players, then just listen (smartphone side) to see if it's 0
-      var playerIndex = (this.players.length - 1)
-      if(playerIndex == 0) {
-        var msg = { 'type': 'lobby', 'ind': playerIndex };
-        peer.send( JSON.stringify(msg) );
+      if(!this.beingRestarted) {
+        var playerIndex = (this.players.length - 1)
+        if(playerIndex == 0) {
+          var msg = { 'type': 'lobby', 'ind': playerIndex };
+          peer.send( JSON.stringify(msg) );
+        }
       }
     },
 
@@ -2555,6 +2659,86 @@ var SceneA = new Phaser.Class({
 
 });
 
+// STUFF (devlog) about scenes: https://phaser.io/phaser3/devlog/121
+var GameOver = new Phaser.Class({
+
+    Extends: Phaser.Scene,
+
+    initialize:
+    function GameOver()
+    {
+        Phaser.Scene.call(this, { key: 'gameOver', active: true });
+    },
+
+    preload: function() {
+      this.load.crossOrigin = 'Anonymous';
+      this.load.spritesheet('gameOver', 'assets/gameOver.png', { frameWidth: 64, frameHeight: 64 });
+    },
+
+    create: function() {
+      this.canvas = this.sys.game.canvas;
+
+      // create background screen (that "pops up" on game over)
+      var bgScreen = this.add.sprite(0.5*this.canvas.width, 0.5*this.canvas.height, 'gameOver');
+      bgScreen.setScale(8,8);
+      bgScreen.setFrame(0);
+
+      // create main text (the big and attention grabbing "YOU WON/YOU LOST")
+      var mainText = this.add.text(bgScreen.x, bgScreen.y - (0.5 - 0.125)*bgScreen.displayHeight + 64, 'YOU WON!');
+      var styleConfig = {
+        fontFamily: '"VT323"',
+        align: 'left',
+        color: 'rgba(0,0,0,0.8)',
+        fontSize: 64,
+        wordWrap: { width: bgScreen.displayWidth - 32*2, useAdvancedWrap: true }
+      }
+
+      mainText.setStyle(styleConfig);
+      mainText.setOrigin(0.5, 0.5);
+
+      // create body text, that explains the results and what to do now
+      styleConfig.fontSize = 24;
+      var bodyText = this.add.text(bgScreen.x - 0.5*bgScreen.displayWidth + 32, mainText.y + 32 + 32, 'Lorum ipsum');
+      bodyText.setStyle(styleConfig);
+      bodyText.setOrigin(0, 0);
+
+      this.bgScreen = bgScreen;
+      this.mainText = mainText;
+      this.bodyText = bodyText;
+
+      // start with the lobby screen
+      this.setScreen(false, 'game lobby');
+    },
+
+    setScreen: function(win, reason) {
+      // special case: game lobby
+      if(reason == 'game lobby') {
+        this.mainText.text = 'JOIN NOW!';
+        this.bodyText.text = 'Enter the room code (bottom right) and a username to join.\n\n\n Once everyone\'s in, the VIP (first player to connect) has a button to start the game!';
+        return;
+      }
+
+      // whether we won or lost, determines the background color (sprite frame) and some other properties
+      if(win) {
+        this.bgScreen.setFrame(0);
+        this.mainText.text = 'YOU WON!';
+      } else {
+        this.bgScreen.setFrame(1);
+        this.mainText.text = 'YOU LOST!';
+      }
+
+      if(reason == 'no money') {
+        this.bodyText.text = 'You ran out of money ...';
+      } else if(reason == 'too many strikes') {
+        this.bodyText.text = 'You failed too many orders ...';
+      } else if(reason == 'success') {
+        this.bodyText.text = 'You are the best pizza peers, probably, presumably, practically!';
+      }
+
+      this.bodyText.text += '\n\nWant to play again? The VIP has a button to restart.'
+    }
+});
+
 function startPhaser() {
   // initialize Phaser game
   // URL (Arcade Physics world init): https://rexrainbow.github.io/phaser3-rex-notes/docs/site/arcade-world/#configuration
@@ -2564,7 +2748,7 @@ function startPhaser() {
     height: '100%',
     backgroundColor: '#8EB526',
     parent: 'phaser-game',
-    scene: [SceneA],
+    scene: [SceneA, GameOver],
     physics: {
         default: 'arcade',
         arcade: { 

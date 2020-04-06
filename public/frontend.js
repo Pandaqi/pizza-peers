@@ -625,6 +625,9 @@ var SceneA = new Phaser.Class({
     {
         Phaser.Scene.call(this, { key: 'sceneA', active: true });
 
+        // initialize variables for game start/restart management
+        // these are for things that should only be initialized ONCE in the whole lifecycle
+        this.beingRestarted = false;
         this.players = [];
     },
 
@@ -648,8 +651,6 @@ var SceneA = new Phaser.Class({
     },
 
     create: function() {
-      // initialize variables for game start/restart management
-      this.beingRestarted = false;
 
       // add room code at bottom right
       var roomText = this.add.text(this.canvas.width - 10, this.canvas.height - 10, connection.room);
@@ -1483,6 +1484,8 @@ var SceneA = new Phaser.Class({
     restartGame() {
       // mark the scene as being restarted
       this.beingRestarted = true;
+      this.money = 25;
+      this.timeLeft = 500;
 
       // copy players to backup variable; clear the actual array
       this.scene.get('gameOver').oldPlayers = this.players;
@@ -1972,21 +1975,30 @@ var SceneA = new Phaser.Class({
 
       // check each existing ingredient against the player allergies
       var myAll = player.myAllergies;
+      var isAllergic = false;
+      var numElementsInIngredient = 0;
       for(var i = 0; i < decIng.length; i++) {
         // if the ingredient doesn't exist, ignore it
         if(decIng[i] == 0) { continue; }
+
+        numElementsInIngredient++;
 
         // if it does, check all the player's allergies
         // if this number is in there, we are allergic
         for(var a = 0; a < myAll.length; a++) {
           if(i == myAll[a]) {
-            return true;
+            isAllergic = true;
           }
         }
       }
 
+      // you can never be allergic for combined pizzas when in 2-3 player mode
+      if(this.players.length <= 3 && numElementsInIngredient > 1) {
+        isAllergic = false;
+      }
+
       // if all checks fail, we are NOT allergic
-      return false;
+      return isAllergic;
     },
 
     convertToBinary(num) {

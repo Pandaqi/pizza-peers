@@ -80,6 +80,16 @@ function initializeNetwork() {
       startPhaser(connection);
     }
 
+    // if it's an ERROR somewhere in the process
+    if(message.type == 'error') {
+      // differentiate error message based on the type of error
+      if(message.val == 'wrong room') {
+        status.innerHTML = 'Sorry, that room does not exist. Reload and try again.';
+      } else {
+        status.innerHTML = 'Error: something went wrong, but we don\'t know what ... perhaps try again?';
+      }
+    }
+
     // if it's an OFFER ...
     if(message.type == 'offer') {
       // Create new peer (initiator = false)
@@ -191,7 +201,7 @@ function initializeNetwork() {
     var peer = new SimplePeer({
       initiator: initiator,
       trickle: false,
-      config: { iceServers: [{ urls: 'stun:stunserver.org:3478' }, { urls: "turn:numb.viagenie.ca:3478", credential:"HupseFlups2", username:"cyttildalionzo@gmail.com" }] },
+      config: { iceServers: [] },
     })
 
     // add peer to peers list
@@ -247,8 +257,6 @@ function initializeNetwork() {
     })
 
     peer.on('data', function(data) {
-      console.log("RECEIVED START GAME MESSAGE");
-
       // parse the message
       data = JSON.parse(data);
 
@@ -500,6 +508,61 @@ function initializeNetwork() {
 
         // player LEFT an order area
         if(data.type == 'area-end') {
+          dynInt.innerHTML = '';
+        }
+
+
+        // player is AT a vehicle
+        if(data.type == 'vehicle') {
+          // display button for entering
+          var btn = document.createElement("button");
+          btn.classList.add('buyButton');
+          btn.innerHTML = "<span>Enter vehicle</span>";
+          dynInt.appendChild(btn);
+          
+          // send message to computer that we want to enter the vehicle
+          btn.addEventListener ("click", function() {
+            var msg = { 'type': 'enter-vehicle' };
+            peer.send( JSON.stringify(msg) );
+
+            dynInt.innerHTML = '';
+          }); 
+        }
+
+        // player decides to ENTER a vehicle
+        if(data.type == 'enter-vehicle') {
+          gm.enterVehicle(peer);
+        }
+
+        // player decides to LEAVE the vehicle
+        if(data.type == 'leave-vehicle') {
+          gm.leaveVehicle(peer);
+        }
+
+        // player receives a button so he can leave the vehicle at any time
+        // NOTE: It's important that the player keeps overlapping the vehicle while on it, otherwise it triggers the end message
+        //       (I would like to turn off the overlapping body, but that is needed for obstruction tests and all ...)
+        if(data.type == 'vehicle-active') {
+          console.log("VEHICLE ACTIVE MESSAGE");
+
+          // display button for leaving the vehicle
+          var btn = document.createElement("button");
+          btn.classList.add('buyButton');
+          btn.innerHTML = "<span>Leave vehicle</span>";
+          dynInt.appendChild(btn);
+          
+          // send message to computer that we want to leave the vehicle
+          btn.addEventListener ("click", function() {
+            var msg = { 'type': 'leave-vehicle' };
+            peer.send( JSON.stringify(msg) );
+
+            dynInt.innerHTML = '';
+          }); 
+        }
+
+        // if player stopped OVERLAPPING vehicle (but isn't in it/exiting)
+        if(data.type == 'vehicle-end') {
+          console.log("VEHICLE END MESSAGE");
           dynInt.innerHTML = '';
         }
       }
@@ -755,6 +818,13 @@ var SceneA = new Phaser.Class({
             frameRate: 10,
             repeat: -1
         });
+
+      this.anims.create({
+        key: 'idleVehicle',
+        frames: this.anims.generateFrameNumbers('vehicles', { start: 0, end: 0 }),
+        frameRate: 10,
+        repeat: -1
+      })
 
       this.anims.create({
             key: 'drive',
@@ -1117,7 +1187,10 @@ var SceneA = new Phaser.Class({
         newVehicle.displayWidth *= 2;
         newVehicle.displayHeight *= 2;
         newVehicle.setOrigin(0.5, 1);
-        newVehicle.anims.play('drive');
+
+        // make vehicles heavy and make them stop/slow automatically over time
+        newVehicle.setMass(100);
+        newVehicle.setDrag(0.8); // lower value = slows faster
 
         // create its actual body
         /*
@@ -1134,10 +1207,10 @@ var SceneA = new Phaser.Class({
       this.physics.add.collider(this.vehicleBodiesActual);
       this.physics.add.collider(this.vehicleBodiesActual, this.natureBodiesActual);
       this.physics.add.collider(this.vehicleBodiesActual, this.tableBodiesActual);
+      this.physics.add.collider(this.vehicleBodiesActual, this.buildingBodiesActual);
 
       // finally, collide vehicles with players, and provide a callback
-      // TO DO: Add callback, allow players to mount and dismount vehicles
-      this.physics.add.collider(this.playerBodiesActual, this.vehicleBodiesActual);
+      this.physics.add.overlap(this.playerBodies, this.vehicleBodiesActual, this.playerAtVehicle, null, this);
 
       //
       // Initialize the delivery system!
@@ -1944,6 +2017,31 @@ var SceneA = new Phaser.Class({
       this.sendTableMessage(player, table.myTable);
     },
 
+    playerAtVehicle(player, vehicle) {
+      // NOTE: This one works via OVERLAP, not COLLISION
+      // so, player already contains the sprite + overlap body, not the actualBody
+
+      // if we're already overlapping a vehicle OR inside a vehicle, do not overlap/collide with vehicles
+      if(player.currentVehicle != null || player.myVehicle != null) {
+        return;
+      }
+
+      // if this vehicle already has someone inside, also ignore it
+      if(vehicle.myCurPlayer >= 0) {
+        return;
+      }
+
+      player.currentVehicle = vehicle;
+
+      this.sendVehicleMessage(player, vehicle);
+    },
+
+    sendVehicleMessage(player, vehicle) {
+      // TO DO: Perhaps inform all other players at the same vehicle?
+      var msg = { 'type': 'vehicle' };
+      player.myPeer.send( JSON.stringify(msg )); 
+    },
+
     sendTableMessage(player, table) {
       // find all players connected to this table
       for(var i = 0; i < this.players.length; i++) {
@@ -2315,6 +2413,54 @@ var SceneA = new Phaser.Class({
       b.myStatus == 'none';
     },
 
+    enterVehicle: function(peer) {
+      var player = this.players[peer.playerGameIndex];
+
+      // check if player and vehicle exist
+      if(player == undefined || player.currentVehicle == null) {
+        this.ingameFeedback(player, 'No vehicle to enter!');
+        console.log("Error: no player or no vehicle to enter");
+        return;
+      }
+
+      // remember we have a player (on the vehicle)
+      player.currentVehicle.myCurPlayer = peer.playerGameIndex;
+
+      // attach player to vehicle permanently
+      player.myVehicle = player.currentVehicle;
+      player.currentVehicle = null;
+
+      // disable player body (otherwise we keep colliding/overlapping all sorts of stuff)
+      player.actualBody.enable = false;
+      player.body.enable = false;
+
+      // send a button to the phone of the player in the vehicle
+      // (if he presses it, he leaves the vehicle)
+      var msg = { 'type': 'vehicle-active' };
+      peer.send( JSON.stringify(msg) );
+    },
+
+    leaveVehicle: function(peer) {
+      var player = this.players[peer.playerGameIndex];
+
+      // check if player and vehicle exist
+      if(player == undefined || player.myVehicle == null) {
+        this.ingameFeedback(player, 'No vehicle to exit!');
+        console.log("Error: no player or no vehicle to exit");
+        return;
+      }
+
+      // remember we left the vehicle (on the vehicle)
+      player.myVehicle.myCurPlayer = -1;
+
+      // remove vehicle from player
+      player.myVehicle = null;
+
+      // enable body again
+      player.actualBody.enable = true;
+      player.body.enable = true;
+    },
+
     playerAtIngredient: function(player, ingLoc) {
       // if our current ingredient is null, update it to reflect our current ingredient spot
       if(player.currentIngredient == null) {
@@ -2489,6 +2635,19 @@ var SceneA = new Phaser.Class({
       for(var i = 0; i < this.players.length; i++) {
         var p = this.players[i];
 
+        // if we ARE in a vehicle, update the position to match the vehicle
+        // (also update depth + shadow sprite of player)
+        if(p.myVehicle != null) {
+          p.actualBody.x = p.myVehicle.x;
+          p.actualBody.y = p.myVehicle.y + 0.65*p.myVehicle.displayHeight;
+
+          p.myVehicle.depth = p.myVehicle.y;
+          p.depth = p.myVehicle.depth - 1;
+          p.shadowSprite.setVisible(false);
+        } else {
+          p.shadowSprite.setVisible(true);
+        }
+
         // match position of player with position of their actual body
         // offset Y _slightly_ (+1) to make colliding with tables easier
         p.x = p.actualBody.x;
@@ -2560,6 +2719,16 @@ var SceneA = new Phaser.Class({
 
             // inform ourselves
             var msg = { 'type': 'area-end' }
+            p.myPeer.send( JSON.stringify(msg) );
+          }
+        }
+
+        // check if we've STOPPED overlapping a vehicle
+        if(p.currentVehicle != null) {
+          if(!this.checkOverlap(p, p.currentVehicle)) {
+            p.currentVehicle = null;
+
+            var msg = { 'type': 'vehicle-end' }
             p.myPeer.send( JSON.stringify(msg) );
           }
         }
@@ -2668,6 +2837,9 @@ var SceneA = new Phaser.Class({
 
       newPlayer.myAllergies = [];
 
+      newPlayer.currentVehicle = null;
+      newPlayer.myVehicle = null;
+
       //
       // ingredients/backpack container
       //
@@ -2718,27 +2890,47 @@ var SceneA = new Phaser.Class({
         return;
       }
 
-      var player = this.players[peer.playerGameIndex];
+      var objToMove = this.players[peer.playerGameIndex];
+      var objsToAnimate = [objToMove];
       var speed = 120;
+      var animNames = ['run', 'drive'];
+      var animNamesIdle = ['idle', 'idleVehicle'];
+
+      // if the player has a vehicle attached, use that instead
+      if(objToMove.myVehicle != null) {
+        objToMove = objToMove.myVehicle;
+        objsToAnimate.push(objToMove);
+
+        // move twice as fast!
+        speed *= 2;
+      } else {
+        objToMove = objToMove.actualBody;
+      }
 
       // just move the player according to velocity vector
       // var curVel = player.velocity
-      player.actualBody.setVelocity(vec[0] * speed, vec[1] * speed);
+      objToMove.setVelocity(vec[0] * speed, vec[1] * speed);
 
-      // if we should stop, play idle animation
-      if(vec[0] == 0 && vec[1] == 0) {
-        player.anims.play('idle', true);
+      // animate all things that need animating
+      // (only the player, or player + vehicle, stuff like that)
+      for(var i = 0; i < objsToAnimate.length; i++) {
+        var obj = objsToAnimate[i];
 
-      // otherwise, play run animation
-      } else {
-        player.anims.play('run', true);
-      }
+        // if we should stop, play idle animation
+        if(vec[0] == 0 && vec[1] == 0) {
+          obj.anims.play(animNamesIdle[i], true);
 
-      // flip properly (on the horizontal axis) if moving the other way
-      if(vec[0] < 0) {
-        player.flipX = true;
-      } else if(vec[0] > 0) {
-        player.flipX = false;
+        // otherwise, play run animation
+        } else {
+          obj.anims.play(animNames[i], true);
+        }
+
+        // flip properly (on the horizontal axis) if moving the other way
+        if(vec[0] < 0) {
+          obj.flipX = true;
+        } else if(vec[0] > 0) {
+          obj.flipX = false;
+        }
       }
     },
 
@@ -2849,7 +3041,7 @@ function startPhaser() {
     physics: {
         default: 'arcade',
         arcade: { 
-          debug: true,
+          debug: false,
         }
     },
     pixelArt: true,

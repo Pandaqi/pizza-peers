@@ -53,8 +53,6 @@ wsServer.on('request', function(request) {
 		// message = JSON.parse(message);
 		message = JSON.parse(message.utf8Data);
 
-		console.log("RECEIVED A MESSAGE" + message);
-
 		//
 		// if this message is a CREATE ROOM message
 		//
@@ -72,8 +70,6 @@ wsServer.on('request', function(request) {
 			// remember our roomID
 			roomID = id;
 
-			console.log("Room created with name " + roomID);
-
 			// beam the room number back to the connection
 			connection.sendUTF(JSON.stringify({ "type": "confirmRoom", "room": roomID }));
 		}
@@ -88,8 +84,11 @@ wsServer.on('request', function(request) {
 			// what is the player username?
 			var usn = message.username
 
+			// check if room exists; if not, return error message to player
 			if(rooms[roomToJoin] == undefined || rooms[roomToJoin] == null) {
-				console.log("Error: someone tried to join nonexistent room (" + roomToJoin + ")");
+				// console.log("Error: someone tried to join nonexistent room (" + roomToJoin + ")");
+				var msg = { 'type': 'error', 'val': 'wrong room' };
+				connection.sendUTF( JSON.stringify(msg) );
 				return;
 			}
 
@@ -116,8 +115,6 @@ wsServer.on('request', function(request) {
 
 			// now relay this offer to the server
 			rooms[roomToJoin].server.sendUTF(JSON.stringify(offer));
-
-			console.log("Someone is trying to join room " + roomID + " with offer " + offer);
 		}
 
 		//
@@ -132,8 +129,6 @@ wsServer.on('request', function(request) {
 
 			// send the response
 			rooms[roomID].players[receivingClient].sendUTF(JSON.stringify(offerResponse));
-
-			console.log("Someone is responding to an offer in room " + roomID + " with response " + offerResponse);
 		}
 
 		/*

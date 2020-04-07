@@ -406,12 +406,18 @@ function initializeNetwork() {
           // contents of your backpack
           var backpackContent = data.backpack;
 
+          // determine the correct phrasing
+          var whatIsIt = 'table';
+          if(data.isOven) {
+            whatIsIt = 'oven';
+          }
+
           // display our options with nice buttons
           if(tableContent >= 0) {
             // PICK UP current content
             var btn1 = document.createElement("button");
             btn1.classList.add('buyButton');
-            btn1.innerHTML = "<span>Pick up</span><div class='ingSprite' style='background-position:-" + (tableContent*32) + "px 0;'></div><span>from the table</span>";
+            btn1.innerHTML = "<span>Pick up</span><div class='ingSprite' style='background-position:-" + (tableContent*32) + "px 0;'></div><span>from the " + whatIsIt + "</span>";
             dynInt.appendChild(btn1);
             btn1.addEventListener ("click", function() {
               // ask computer to pick up this ingredient
@@ -431,7 +437,7 @@ function initializeNetwork() {
             var btn = document.createElement("button");
             btn.classList.add('buyButton');
             btn.setAttribute('data-ing', curIng);
-            btn.innerHTML = "<span>Drop</span><div class='ingSprite' style='background-position:-" + (curIng*32) + "px 0;'></div><span>on the table</span>";
+            btn.innerHTML = "<span>Drop</span><div class='ingSprite' style='background-position:-" + (curIng*32) + "px 0;'></div><span>at the " + whatIsIt + "</span>";
             dynInt.appendChild(btn);
             
             // tell computer to drop this ingredient
@@ -1253,7 +1259,8 @@ var SceneA = new Phaser.Class({
       this.timeText.setOrigin(0, 0.5);
       this.timeText.depth = this.canvas.height * 2;
 
-      this.timeLeft = 60 * 5 + 1;
+      // currently, a round lasts 6 minutes
+      this.timeLeft = 60 * 6 + 1;
       this.updateTimer();
 
       // VERY IMPORTANT: Actually start the timer (wouldn't want to forget that :p)
@@ -1591,7 +1598,7 @@ var SceneA = new Phaser.Class({
       if(tableType == 'oven') {
         var heatMeter = this.add.sprite(table.myContentSprite.x + 0.5*this.tileWidth, table.myContentSprite.y, 'buildings');
         
-        // frames 37-41 are for the heat meter => 37 = cold, 41 = burned
+        // frames 37-42 are for the heat meter => 37 = cold, 42 = burned
         heatMeter.setFrame(37);
         heatMeter.setScale(2,2);
         heatMeter.setVisible(false);
@@ -2283,7 +2290,7 @@ var SceneA = new Phaser.Class({
       }
 
       // if we're at an OVEN and trying to drop a single INGREDIENT (which is not dough), repel it
-      var powerOfTwo = ( (Math.log(x)/Math.log(2)) % 1 === 0 );
+      var powerOfTwo = ( (Math.log(ing)/Math.log(2)) % 1 === 0 );
       if(t.myType == 'oven' && ing > 1 && powerOfTwo) {
         this.ingameFeedback(player, 'Can\'t bake single ingredient by itself!');
         console.log("Error: tried to put a single topping into the oven, without dough");
@@ -2327,8 +2334,8 @@ var SceneA = new Phaser.Class({
       // the value "dh" is simply the timestep from this update
       // we still need to multiply this with how fast stuff warms or cools
       // (and convert milliseconds to seconds, because our heat values go from 0 to 1, not 0 to 1000)
-      var heatDuration = (1.0/1000) * (1.0/40); // 40 seconds to heat something fully (from 0->1)
-      var coolDuration = (1.0/1000) * (1.0/60); // 60 seconds to cool something fully (from 1->0)
+      var heatDuration = (1.0/1000) * (1.0/25); // 25 seconds to heat something fully (from 0->1)
+      var coolDuration = (1.0/1000) * (1.0/120); // 120 seconds to cool something fully (from 1->0) (why so long? because if it drops below 7/9, it's already useless, so keep it up)
       if(dh > 0) {
         dh *= heatDuration;
       } else {
@@ -2345,19 +2352,54 @@ var SceneA = new Phaser.Class({
         heatVal = obj.myIngredientParams[ind];
       }
 
+      // if the original heat value is 1, it is BURNED and can never cool down
+      var isBurned = ((heatVal - dh) >= 1);
+
       // clamp between 0 and 1
       heatVal = Math.min( Math.max(0, heatVal), 1);
 
       //
-      // TO DO: check if something should happen based on new heat
+      // Check if something should happen based on new heat
       //
+
+      // if the pizza was already burned, or it is burned now, tint the sprite (make it blackened)
+      if(isBurned || heatVal >= 1) {
+        heatVal = 1;
+
+        if(ind == -1) {
+          obj.heatVal = 1.0;
+
+          obj.myContentSprite.setFrame(0);
+          obj.myContent = 0;
+        } else {
+          obj.myIngredientParams[ind] = 1.0;
+
+          obj.backpackSprites[ind].setFrame(0);
+          obj.myIngredients[ind] = 0;
+        }
+      }
 
       //
       // update visuals
       //
 
-      // heat goes from 0 to 1; 0 is too cold, above 0.8 is okay, 1 is burned (it caps at 1)
-      var heatToFrame = 37 + Math.floor(heatVal * 4);
+
+      // heat goes from 0 to 1; 0 is too cold, above (7/9) ~ 0.78 is okay, 1 is burned (it caps at 1)
+      // the steps it takes (2/9, or 1/9) depends on the meter (see sprite), the last step is immediate burning, that's why it has no length
+      var heatToFrame = 37;
+      if(heatVal < (3/9)) {
+        heatToFrame = 37
+      } else if(heatVal < (5/9)) {
+        heatToFrame = 38
+      } else if(heatVal < (7/9)) {
+        heatToFrame = 39
+      } else if(heatVal < (8/9)) {
+        heatToFrame = 40
+      } else if(heatVal < (9/9)) {
+        heatToFrame = 41
+      } else {
+        heatToFrame = 42
+      }
 
       // finally, set the values and frames correctly
       if(ind == -1) {
@@ -2366,10 +2408,10 @@ var SceneA = new Phaser.Class({
           obj.myHeatMeter.setFrame(heatToFrame);
         }
       } else {
-        // update heat stuff in player backpack (if heat above 0.8, it's baked, otherwise it's not)
-        if(heatVal >= 0.8) {
+        // update heat stuff in player backpack (if heat above (7/9), it's baked, otherwise it's not)
+        if(heatVal >= (7/9)) {
           obj.backpackParamSprites[ind].setVisible(true);
-          obj.backpackParamSprites[i].anims.play('fullyBaked');
+          obj.backpackParamSprites[ind].anims.play('fullyBaked', true);
         } else {
           obj.backpackParamSprites[ind].setVisible(false);
         }
@@ -2378,34 +2420,60 @@ var SceneA = new Phaser.Class({
 
     playerAtArea: function(player, area) {
       // if this player does NOT have an assigned area yet, and this area is NOT currently being used
-      if(player.currentArea == null && !area.beingUsed) {
-        // if this building does nothing special, we do nothing special
-        if(area.myBuilding.myStatus == 'none') {
+      if(player.currentArea != null || area.beingUsed) {
+        return;
+      }
+
+      // if this building does nothing special, we do nothing special
+      if(area.myBuilding.myStatus == 'none') {
+        return;
+      }
+
+      // set the current area
+      // (even if we can't deliver, it's useful to do this: it means we still emit one signal upon entering and one upon leaving)
+      player.currentArea = area;
+
+      if(area.myBuilding.myStatus == 'waiting') {
+        var weHaveIt = false;
+        var weHaveUncooked = false;
+        for(var i = 0; i < player.myIngredients.length; i++) {
+          if(player.myIngredients[i] == area.myBuilding.myOrder) {
+            // yay, we have the right thing
+            weHaveIt = true;
+
+            // it's the right ingredient, BUT it hasn't baked long enough!
+            if(player.myIngredientParams[i] < (7/9)) {
+              weHaveUncooked = true;
+              weHaveIt = false;
+              continue;
+            }
+
+            // if everything checks out (ingredient + baked long enough), break here
+            if(weHaveIt) {
+              break;
+            }
+            
+          }
+        }
+
+        if(!weHaveIt) {
+          this.ingameFeedback(player, 'Delivery does not match your backpack');
+          console.log("Error: Nah, you don't have what should be delivered here");
           return;
         }
 
-        if(area.myBuilding.myStatus == 'waiting') {
-          var weHaveIt = false;
-          for(var i = 0; i < player.myIngredients.length; i++) {
-            if(player.myIngredients[i] == area.myBuilding.myOrder) {
-              // yay, we have the right thing
-              weHaveIt = true;
-            }
-          }
-
-          if(!weHaveIt) {
-            console.log("Error: Nah, you don't have what should be delivered here");
-            return;
-          }
+        if(weHaveUncooked) {
+          this.ingameFeedback(player, 'Sorry, the pizza needs to be hotter!');
+          console.log("Error: tried to deliver a pizza that wasn't baked enough");
+          return;
         }
-
-        // otherwise, send an area message with the building status included
-        var msg = { 'type': 'area', 'status': area.myBuilding.myStatus };
-        player.currentArea = area;
-        player.myPeer.send( JSON.stringify(msg) );
-
-        area.beingUsed = true;
       }
+
+      // otherwise, send an area message with the building status included
+      var msg = { 'type': 'area', 'status': area.myBuilding.myStatus };
+      player.myPeer.send( JSON.stringify(msg) );
+
+      area.beingUsed = true;
     },
 
     takeOrder: function(peer) {
@@ -2433,10 +2501,8 @@ var SceneA = new Phaser.Class({
       b.myStatus = 'waiting';
 
       // plan the delivery ran out event
-      // you have one minute for delivery, then 30 seconds before it's definitely over
-      // NO, time depends on complexity of the order; 15 seconds per ingredient
-      var deliveryTime = b.myOrderIngredientNum * 15 * 1000;
-      console.log("PLANNING an almostFailed event, delta time is " + deliveryTime);
+      // Time depends on complexity of the order => 20 seconds per ingredient, 30 seconds for baking
+      var deliveryTime = b.myOrderIngredientNum * 20 * 1000 + 30
       this.addEventToQueue('almostFailed', deliveryTime, { 'building': b, 'id': b.myOrderID, 'statusCheck': 'waiting' });
 
       // remove exclamation mark
@@ -2741,14 +2807,17 @@ var SceneA = new Phaser.Class({
       for(var i = 0; i < player.backpackSize; i++) {
         // if something is here, show it (and set to right frame)
         if(i < player.myIngredients.length) {
+          var heatVal = player.myIngredientParams[i];
+
           player.backpackSprites[i].setVisible(true);
           player.backpackSprites[i].setFrame(player.myIngredients[i]);
 
           // if heat is above 0.8, show the sprite and animate it
-          if(params >= 0.8) {
+          if(heatVal >= (7/9)) {
             player.backpackParamSprites[i].setVisible(true);
-            player.backpackParamSprites[i].anims.play('fullyBaked');
+            player.backpackParamSprites[i].anims.play('fullyBaked', true);
           }
+
         // otherwise, hide it
         } else {
           player.backpackSprites[i].setVisible(false);
@@ -2762,16 +2831,6 @@ var SceneA = new Phaser.Class({
 
       // yes, we were succesful!
       return true;
-
-      /* OLD CODE => was used to write out global ingredient counts, but now players have personal backpacks
-      var ingredientString = '';
-      var ingredients = ['Dough', 'Tomatoes', 'Cheese', 'Spice', 'Vegetables']
-      for(var i = 0; i < 5; i++) {
-        ingredientString += ingredients[i] + ": " + this.ingredients[i] + "\n";
-      }
-
-      this.ingredientText.text = ingredientString;
-      */
     },
 
     update: function(time, dt) {
@@ -2840,8 +2899,9 @@ var SceneA = new Phaser.Class({
           s.y = targetY;
           s.depth = p.y;
 
+          // remember: param sprites have size 8x11, whilst ingredients are 8x8, so do this to make sure they align properly
           p.backpackParamSprites[b].x = s.x;
-          p.backpackParamSprites[b].y = s.y;
+          p.backpackParamSprites[b].y = s.y - (3/8)*0.5*this.tileHeight;
           p.backpackParamSprites[b].depth = s.depth - 0.01;
         }
 
@@ -2978,6 +3038,10 @@ var SceneA = new Phaser.Class({
       actualBody.setOrigin(0.5, 1.0);
       actualBody.setSize(9, 3);
       actualBody.setScale(scaleFactor);
+
+      // a high value is way too chaotic and uncontrollable
+      // a very low value, however, might just help bounce the player off of annoying walls
+      actualBody.setBounce(0.1, 0.1);
       
 
       // create two-way street connection
@@ -3219,7 +3283,7 @@ var GameOver = new Phaser.Class({
         this.bodyText.text = 'You are the best pizza peers, probably, presumably, practically!';
       }
 
-      this.bodyText.text += '\n\nWant to play again? The VIP has a button to restart.'
+      this.bodyText.text += '\n\n\nWant to play again? The VIP has a button to restart.'
     }
 });
 

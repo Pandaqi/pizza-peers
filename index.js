@@ -40,9 +40,8 @@ wsServer.on('request', function(request) {
 	// accept the connection
 	var connection = request.accept(null, request.origin);
 
+	// create a persistent variable for our roomID; means we don't need to look it up all the time, which is faster
 	var roomID = -1;
-
-	console.log("SOMEONE IS TRYING TO CONNECT");
 
 	// This is the most important callback for us, we'll handle
 	// all messages from users here.

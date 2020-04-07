@@ -132,8 +132,6 @@ function initializeNetwork() {
 
       // Send a message to the websocket server, creating a game and opening ourselves to connections
       connection.send( JSON.stringify(message) );
-
-      // TO DO: Go to a new screen
   });
 
   // Listen for button for JOINING games
@@ -201,7 +199,7 @@ function initializeNetwork() {
     var peer = new SimplePeer({
       initiator: initiator,
       trickle: false,
-      config: { iceServers: [] },
+      config: { iceServers: [{ urls: 'stun:stunserver.org:3478' }, { urls: "turn:numb.viagenie.ca:3478", credential:"HupseFlups2", username:"cyttildalionzo@gmail.com" }] },
     })
 
     // add peer to peers list
@@ -395,7 +393,12 @@ function initializeNetwork() {
 
         // player is at a TABLE location
         if(data.type == 'table') {
-          dynInt.innerHTML = '<p>You are at a table.</p>';
+          var informMessage = '<p>You are at a table.</p>';
+          if(data.isOven) {
+            informMessage = '<p>You are at an oven.</p>';
+          }
+
+          dynInt.innerHTML = informMessage;
 
           // content of the table
           var tableContent = data.content;
@@ -404,7 +407,6 @@ function initializeNetwork() {
           var backpackContent = data.backpack;
 
           // display our options with nice buttons
-
           if(tableContent >= 0) {
             // PICK UP current content
             var btn1 = document.createElement("button");
@@ -832,6 +834,13 @@ var SceneA = new Phaser.Class({
             frameRate: 10,
             repeat: -1
         });
+
+      this.anims.create({
+        key: 'fullyBaked',
+        frames: this.anims.generateFrameNumbers('buildings', { start: 32, end: 36 }),
+        frameRate: 10,
+        repeat: -1
+      });
 
       // 
       // initialize texture that will hold all shadows
@@ -1293,8 +1302,6 @@ var SceneA = new Phaser.Class({
 
     createWorkspace() {
       // find random starting location
-      // NOTE/TO DO: There is something wrong with the mapCheck function
-      // =>  makes an infinite loop, but why?
       var x,y;
       var margin = 3;
       do {
@@ -1549,10 +1556,19 @@ var SceneA = new Phaser.Class({
       // create the table body with right size and all
       var table = this.tableBodies.create(x * this.tileWidth, y * this.tileHeight, 'buildings');
 
+      // determine table type (regular or oven) => random for now (TO DO?)
+      // frames: 28 = regular table, 29 = oven
+      var tableType = 'regular';
+      table.setFrame(28);
+      if(Math.random() <= 0.5) { 
+        tableType = 'oven'; 
+        table.setFrame(29);
+      }
+      table.myType = tableType;
+
       table.y += 0.5*this.tileHeight;
       table.setOrigin(0.5, 1);
-      table.setScale(4,4).refreshBody();
-      table.setFrame(28); // 28 = regular table, 29 = oven
+      table.setScale(4,4).refreshBody(); 
       table.id = this.runningID++;
 
       // initialize tables empty
@@ -1567,11 +1583,29 @@ var SceneA = new Phaser.Class({
 
       // offset depth to make room for walls
       table.depth = table.y - 2;
-      table.myContentSprite.depth = table.depth;
+      table.myContentSprite.depth = table.depth + 0.01;
 
-      // animate this sprite (just softly go up and down, repeat infinitely)
+      // if it's an oven, add the HEAT meter 
+      // (it's display to the left, next to the order sprite)
+      var tweenTargets = [table.myContentSprite];
+      if(tableType == 'oven') {
+        var heatMeter = this.add.sprite(table.myContentSprite.x + 0.5*this.tileWidth, table.myContentSprite.y, 'buildings');
+        
+        // frames 37-41 are for the heat meter => 37 = cold, 41 = burned
+        heatMeter.setFrame(37);
+        heatMeter.setScale(2,2);
+        heatMeter.setVisible(false);
+        heatMeter.depth = table.myContentSprite.depth + 0.05;
+
+        table.myHeatMeter = heatMeter;
+
+        tweenTargets = [table.myContentSprite, table.myHeatMeter];
+      }
+
+      // animate the order sprite (just softly go up and down, repeat infinitely)
+      // also animate the heat meter, if it exists
       var tween = this.tweens.add({
-          targets: table.myContentSprite,
+          targets: tweenTargets,
           y: { from: table.myContentSprite.y, to: table.myContentSprite.y - 16 },
           ease: 'Linear',       // 'Cubic', 'Elastic', 'Bounce', 'Back'
           duration: 1000,
@@ -1820,8 +1854,7 @@ var SceneA = new Phaser.Class({
       
       } else if(ev.type == 'almostFailed') {
         // if this building is STILL ordering, oh no!
-        //  - turn on the hourglass animation
-        //  - make the order mark flicker? (TO DO: Use a tween, but we'd need to do bookkeeping to remove the tween later)
+        // turn on some animations and plan the definite fail event
 
         // NOTE: It _could_ happen that a building goes from ordering => waiting => none => ordering within that timespan
         // That's why we keep an ID that tracks the current order number, and add it to the event
@@ -2052,7 +2085,7 @@ var SceneA = new Phaser.Class({
         }
 
         // send (personalized) message
-        var msg = { 'type': 'table', 'content': table.myContent, 'backpack': p.myIngredients };
+        var msg = { 'type': 'table', 'isOven': (table.myType == 'oven'),'content': table.myContent, 'backpack': p.myIngredients };
         p.myPeer.send( JSON.stringify(msg) );
       }
     },
@@ -2112,21 +2145,27 @@ var SceneA = new Phaser.Class({
       }
 
       // update our backpack
-      var result = this.updateIngredient(peer, ingredientType, 1);
+      var t = player.currentTable;
+      var params = t.heatVal;
+      var result = this.updateIngredient(peer, ingredientType, 1, params);
 
       if(!result) {
         this.ingameFeedback(player, 'No space in backpack!');
         console.log("Error: no space in backpack to pick up ingredient from table");
-        this.sendTableMessage(player, player.currentTable);
+        this.sendTableMessage(player, t);
         return;
       }
 
       // update the table
-      player.currentTable.myContent = -1;
-      player.currentTable.myContentSprite.setVisible(false);
+      t.myContent = -1;
+      t.myContentSprite.setVisible(false);
+      
+      if(t.myType == 'oven') {
+        t.myHeatMeter.setVisible(false);
+      }
 
       // send response back (simply an UPDATE on the table status)
-      this.sendTableMessage(player, player.currentTable);
+      this.sendTableMessage(player, t);
     },
 
     hasAllergy(player, ing) {
@@ -2234,25 +2273,107 @@ var SceneA = new Phaser.Class({
         return;
       }
 
-      // Combine ingredients!
-      var newContent = this.combineIngredients(player.currentTable.myContent, ing);
-      if(newContent == -1) {
-        this.ingameFeedback(player, 'Can\'t combine ingredients!');
-        console.log("Error: invalid combination of ingredients!");
-        this.sendTableMessage(player, player.currentTable);
+      // if we're at an OVEN, but there's already something INSIDE the oven
+      // do NOT allow dropping something new onto it
+      var t = player.currentTable;
+      if(t.myType == 'oven' && t.myContent != -1) {
+        this.ingameFeedback(player, 'Oven is already full!');
+        console.log("Error: tried to combine ingredients on an oven; you can only combine at a table");
         return;
       }
 
+      // if we're at an OVEN and trying to drop a single INGREDIENT (which is not dough), repel it
+      var powerOfTwo = ( (Math.log(x)/Math.log(2)) % 1 === 0 );
+      if(t.myType == 'oven' && ing > 1 && powerOfTwo) {
+        this.ingameFeedback(player, 'Can\'t bake single ingredient by itself!');
+        console.log("Error: tried to put a single topping into the oven, without dough");
+        return;
+      }
+
+      // Combine ingredients!
+      var newContent = this.combineIngredients(t.myContent, ing);
+      if(newContent == -1) {
+        this.ingameFeedback(player, 'Can\'t combine ingredients!');
+        console.log("Error: invalid combination of ingredients!");
+        this.sendTableMessage(player, t);
+        return;
+      }
+
+      // get heat value from player, copy this to the table
+      // NOTE/TO DO: Perhaps in the future I might want to have multiple parameters per pizza (should rename this variable and turn into object with "heat" property)
+      var heatVal = this.getIngredientParams(player, ing);
+      t.heatVal = heatVal;
+
+      // if it's an oven, take over the ingredient's heat value, update markers
+      if(t.myType == 'oven') {
+        this.updateHeat(t, 0);
+      }
+
       // update the table (content + sprite)
-      player.currentTable.myContent = newContent;
-      player.currentTable.myContentSprite.setVisible(true);
-      player.currentTable.myContentSprite.setFrame(newContent);
+      t.myContent = newContent;
+      t.myContentSprite.setVisible(true);
+      t.myContentSprite.setFrame(newContent);
 
       // update player backpack
       this.updateIngredient(peer, ing, -1);
 
       // send response back (an UPDATE on table/backpack status)
-      this.sendTableMessage(player, player.currentTable);
+      this.sendTableMessage(player, t);
+    },
+
+    // if obj is the only parameter, we're looking at a table
+    // if the index ('ind') is specified, we're looking at an ingredient in a player's backpack
+    updateHeat(obj, dh, ind = -1) {
+      // the value "dh" is simply the timestep from this update
+      // we still need to multiply this with how fast stuff warms or cools
+      // (and convert milliseconds to seconds, because our heat values go from 0 to 1, not 0 to 1000)
+      var heatDuration = (1.0/1000) * (1.0/40); // 40 seconds to heat something fully (from 0->1)
+      var coolDuration = (1.0/1000) * (1.0/60); // 60 seconds to cool something fully (from 1->0)
+      if(dh > 0) {
+        dh *= heatDuration;
+      } else {
+        dh *= coolDuration;
+      }
+
+      // update heat value + grab the new value
+      var heatVal = 0;
+      if(ind == -1) {
+        obj.heatVal += dh;
+        heatVal = obj.heatVal;
+      } else {
+        obj.myIngredientParams[ind] += dh;
+        heatVal = obj.myIngredientParams[ind];
+      }
+
+      // clamp between 0 and 1
+      heatVal = Math.min( Math.max(0, heatVal), 1);
+
+      //
+      // TO DO: check if something should happen based on new heat
+      //
+
+      //
+      // update visuals
+      //
+
+      // heat goes from 0 to 1; 0 is too cold, above 0.8 is okay, 1 is burned (it caps at 1)
+      var heatToFrame = 37 + Math.floor(heatVal * 4);
+
+      // finally, set the values and frames correctly
+      if(ind == -1) {
+        if(obj.myType == 'oven') {
+          obj.myHeatMeter.setVisible(true);
+          obj.myHeatMeter.setFrame(heatToFrame);
+        }
+      } else {
+        // update heat stuff in player backpack (if heat above 0.8, it's baked, otherwise it's not)
+        if(heatVal >= 0.8) {
+          obj.backpackParamSprites[ind].setVisible(true);
+          obj.backpackParamSprites[i].anims.play('fullyBaked');
+        } else {
+          obj.backpackParamSprites[ind].setVisible(false);
+        }
+      }
     },
 
     playerAtArea: function(player, area) {
@@ -2410,7 +2531,7 @@ var SceneA = new Phaser.Class({
       this.curOutstandingOrders--;
 
       // reset status to none (we have our thing, stop whining about it)
-      b.myStatus == 'none';
+      b.myStatus = 'none';
     },
 
     enterVehicle: function(peer) {
@@ -2488,6 +2609,12 @@ var SceneA = new Phaser.Class({
         return;
       }
 
+      // subtract money (price for buying)
+      var result = this.updateMoney(-buyInfo.price, player);
+      if(!result) {
+        return;
+      }
+
       // add ingredient(s) to the player
       var result = this.updateIngredient(peer, buyInfo.ing, 1);
 
@@ -2495,11 +2622,10 @@ var SceneA = new Phaser.Class({
       if(!result) {
         this.ingameFeedback(player, 'No space in backpack!');
         console.log("Error: trying to buy an ingredient you don't have space for (in your backpack");
-        return
+        return;
       }
 
-      // subtract money (price for buying)
-      var result = this.updateMoney(-buyInfo.price, player);
+      
     },
 
     gameOver: function(win, reason) {
@@ -2568,7 +2694,15 @@ var SceneA = new Phaser.Class({
       return true;
     },
 
-    updateIngredient: function(peer, ing, val) {
+    getIngredientParams: function(player, ing) {
+      for(var i = (player.myIngredients.length-1); i >= 0; i--) {
+        if(player.myIngredients[i] == ing) {
+          return player.myIngredientParams[i];
+        }
+      }
+    },
+
+    updateIngredient: function(peer, ing, val, params = 0) {
       // update actual value
       var player = this.players[peer.playerGameIndex];
 
@@ -2577,16 +2711,23 @@ var SceneA = new Phaser.Class({
         return false;
       }
 
+      // if it's an ADDITION, well, simply add it
       if(val > 0) {
         for(var i = 0; i < val; i++) {
           player.myIngredients.push(ing);
+
+          // Take over the parameters from whatever we picked up
+          player.myIngredientParams.push(params);
         }
+
+      // otherwise, if we are REMOVING/USING an ingredient ...
       } else {
         // go through ingredients (in reverse order)
         // remove matching values until we've removed enough of them
         for(var i = (player.myIngredients.length-1); i >= 0; i--) {
           if(player.myIngredients[i] == ing) {
             player.myIngredients.splice(i, 1);
+            player.myIngredientParams.splice(i, 1);
             val++;
           }
 
@@ -2602,10 +2743,17 @@ var SceneA = new Phaser.Class({
         if(i < player.myIngredients.length) {
           player.backpackSprites[i].setVisible(true);
           player.backpackSprites[i].setFrame(player.myIngredients[i]);
-        
+
+          // if heat is above 0.8, show the sprite and animate it
+          if(params >= 0.8) {
+            player.backpackParamSprites[i].setVisible(true);
+            player.backpackParamSprites[i].anims.play('fullyBaked');
+          }
         // otherwise, hide it
         } else {
           player.backpackSprites[i].setVisible(false);
+          player.backpackParamSprites[i].setVisible(false);
+          player.backpackParamSprites[i].anims.stop();
         }
       }
 
@@ -2630,6 +2778,26 @@ var SceneA = new Phaser.Class({
       // check the event queue
       // (which should automatically handle events that should happen)
       this.checkEventQueue(time);
+
+      // go through all tables (for updating heat values)
+      var tables = this.tableBodies.getChildren();
+      for(var i = 0; i < tables.length; i++) {
+        var t = tables[i];
+
+        // ignore anything that is empty
+        if(t.myContent == -1) {
+          continue;
+        }
+
+        // ovens INCREASE heat
+        if(t.myType == 'oven') {
+          this.updateHeat(t, dt);
+
+        // tables DECREASE heat
+        } else {
+          this.updateHeat(t, -dt);
+        }
+      }
 
       // go through all players
       for(var i = 0; i < this.players.length; i++) {
@@ -2670,8 +2838,16 @@ var SceneA = new Phaser.Class({
 
           s.x = p.x - 0.5*p.backpackSizeFilled*spriteWidth + (b+0.5)*spriteWidth;
           s.y = targetY;
-
           s.depth = p.y;
+
+          p.backpackParamSprites[b].x = s.x;
+          p.backpackParamSprites[b].y = s.y;
+          p.backpackParamSprites[b].depth = s.depth - 0.01;
+        }
+
+        // slowly cool down anything in our backpack
+        for(var b = 0; b < p.myIngredients.length; b++) {
+          this.updateHeat(p, -dt, b);
         }
 
         // set text below the players 
@@ -2694,12 +2870,20 @@ var SceneA = new Phaser.Class({
         // check if we've STOPPED colliding with a table
         // if we have a table saved, but we're not colliding with anything, we just EXITED the collision
         if(p.currentTable != null) {
+          var tp = p.currentTable.myType;
+
           // highlight table
           p.currentTable.setFrame(30);
-
+          if(tp == 'oven') {
+            p.currentTable.setFrame(31);
+          }
+          
           if(!this.checkOverlap(p, p.currentTable)) {
             // reset table sprite
             p.currentTable.setFrame(28);
+            if(tp == 'oven') {
+              p.currentTable.setFrame(29);
+            }
 
             // reset variables
             p.currentTable = null
@@ -2827,7 +3011,8 @@ var SceneA = new Phaser.Class({
       //
       newPlayer.currentIngredient = null;
       newPlayer.currentIngLocation = null;
-      newPlayer.myIngredients = [];
+      newPlayer.myIngredients = []; // the actual ingredients/pizzas we have
+      newPlayer.myIngredientParams = []; // any status modifiers, such as heat value
 
       newPlayer.currentTable = null;
 
@@ -2848,14 +3033,24 @@ var SceneA = new Phaser.Class({
 
       newPlayer.backpackSize = 3;
       newPlayer.backpackSprites = [];
+      newPlayer.backpackParamSprites = [];
       newPlayer.backpackSizeFilled = 0;
       for(var i = 0; i < newPlayer.backpackSize; i++) {
+        // regular ingredient sprite
         var tempS = newPlayer.backpack.create(i*32, 0, 'ingredients');
 
         tempS.displayHeight = tempS.displayWidth = 32;
         tempS.setVisible(false);
 
         newPlayer.backpackSprites.push(tempS);
+
+        // parameter sprites (such as: heat value)
+        tempS = newPlayer.backpack.create(i*32, 0, 'buildings');
+
+        tempS.setScale(4,4);
+        tempS.setVisible(false);
+
+        newPlayer.backpackParamSprites.push(tempS);
       }
 
       //

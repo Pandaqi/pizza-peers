@@ -199,7 +199,7 @@ function initializeNetwork() {
     var peer = new SimplePeer({
       initiator: initiator,
       trickle: false,
-      config: { iceServers: [{ urls: 'stun:stunserver.org:3478' }, { urls: "turn:numb.viagenie.ca:3478", credential:"HupseFlups2", username:"cyttildalionzo@gmail.com" }] },
+      config: { iceServers: [] },
     })
 
     // add peer to peers list
@@ -333,16 +333,18 @@ function initializeNetwork() {
         if(data.type == 'allergies') {
           var allergyDiv = document.getElementById('allergyInterface');
 
-          var tempString = '<div class="allergyDiv"><span>You are allergic to</span>'
+          var tempString = '<div class="allergyDiv"><span>You\'re allergic to</span>'
           var numAllergies = data.val.length;
           for(var i = 0; i < numAllergies; i++) {
             var ingredientIndex = Math.pow(2, data.val[i]); // convert ingredient index (0-4) to position in spritesheet
             tempString += "<div class='ingSprite' style='background-position:-" + (ingredientIndex*32) + "px 0;'></div>";
 
             // if this is the second to last iteration, add the word "and"
+            // before that, add a comma
+            // otherwise add nothing
             if(i == (numAllergies - 2)) {
               tempString += "<span>and</span>"
-            } else {
+            } else if( i < (numAllergies-2) ) {
               tempString += "<span>, </span>"
             }
           }
@@ -364,13 +366,17 @@ function initializeNetwork() {
 
         // player is at an INGREDIENT location (for the first time; overlapEnter)
         if(data.type == 'ing') {
-          var ingredients = ['Dough', 'Tomatoes', 'Cheese', 'Spice', 'Vegetables']
-
           dynInt.innerHTML = '<p>You are at an ingredient store.</p>';
+
+          // convert ingredient to atomic type (one of the five basic ingredients)
+          // (this is needed for styling the button with the right coloring)
+          var ingredients = ['Dough', 'Tomato', 'Cheese', 'Spice', 'Champignon']
+          var atomicType = Math.log2(data.ing);
 
           // create the button
           var button = document.createElement("button");
           button.classList.add('buyButton');
+          button.classList.add("single" + ingredients[atomicType]);
           button.innerHTML = "<span>Buy</span><div class='ingSprite' style='background-position:-" + (data.ing*32) + "px 0;'></div><span>for " + data.price + "</span><div class='ingMoney'></div>";
 
           // append to dynamic interface
@@ -412,11 +418,21 @@ function initializeNetwork() {
             whatIsIt = 'oven';
           }
 
+          // use this for determining the right class/visual representation for this button
+          var ingredients = ['Dough', 'Tomato', 'Cheese', 'Spice', 'Champignon']
+
           // display our options with nice buttons
           if(tableContent >= 0) {
             // PICK UP current content
             var btn1 = document.createElement("button");
             btn1.classList.add('buyButton');
+
+            // add visual class if this is a single ingredient
+            var atomicType = Math.log2(tableContent);
+            if((atomicType % 1 === 0)) {
+              btn1.classList.add('single' + ingredients[atomicType]);
+            }
+
             btn1.innerHTML = "<span>Pick up</span><div class='ingSprite' style='background-position:-" + (tableContent*32) + "px 0;'></div><span>from the " + whatIsIt + "</span>";
             dynInt.appendChild(btn1);
             btn1.addEventListener ("click", function() {
@@ -428,6 +444,13 @@ function initializeNetwork() {
             });
           }
 
+          // add something to visually seperate PICKING UP and DROPPING, but only if both are present
+          // NOTE: It's IMPORTANT we do this via document.createElement; modifying innerHTML removes any event listeners from buttons we already created
+          if(tableContent >= 0 && backpackContent.length > 0) {
+            var separator = document.createElement("hr");
+            dynInt.appendChild(separator);
+          }
+
           // DROP something from current backpack
           for(var i = 0; i < backpackContent.length; i++) {
             // it's very important we copy the current ingredient here
@@ -436,7 +459,14 @@ function initializeNetwork() {
 
             var btn = document.createElement("button");
             btn.classList.add('buyButton');
-            btn.setAttribute('data-ing', curIng);
+
+            // add visual class if this is a single ingredient
+            var atomicType = Math.log2(curIng);
+            if((atomicType % 1 === 0)) {
+              btn.classList.add('single' + ingredients[atomicType]);
+            }
+
+            btn.setAttribute('data-ing', curIng); // set ingredient as attribute on the button => most reliable way I know for retrieving it later
             btn.innerHTML = "<span>Drop</span><div class='ingSprite' style='background-position:-" + (curIng*32) + "px 0;'></div><span>at the " + whatIsIt + "</span>";
             dynInt.appendChild(btn);
             
@@ -475,6 +505,7 @@ function initializeNetwork() {
           if(data.status == 'ordering') {
             var btn = document.createElement("button");
             btn.classList.add('buyButton');
+            btn.classList.add('buildingButton');
             btn.innerHTML = "<span>Take their order!</span>";
             dynInt.appendChild(btn);
             
@@ -490,6 +521,7 @@ function initializeNetwork() {
           } else if(data.status == 'waiting') {
             var btn = document.createElement("button");
             btn.classList.add('buyButton');
+            btn.classList.add('buildingButton');
             btn.innerHTML = "<span>Deliver the pizza!</span>";
             dynInt.appendChild(btn);
             
@@ -522,18 +554,22 @@ function initializeNetwork() {
 
         // player is AT a vehicle
         if(data.type == 'vehicle') {
+          var vehicleInt = document.getElementById('vehicleInterface');
+          vehicleInt.style.display = 'block';
+
           // display button for entering
           var btn = document.createElement("button");
           btn.classList.add('buyButton');
+          btn.classList.add('vehicleButton');
           btn.innerHTML = "<span>Enter vehicle</span>";
-          dynInt.appendChild(btn);
+          vehicleInt.appendChild(btn);
           
           // send message to computer that we want to enter the vehicle
           btn.addEventListener ("click", function() {
             var msg = { 'type': 'enter-vehicle' };
             peer.send( JSON.stringify(msg) );
 
-            dynInt.innerHTML = '';
+            vehicleInt.innerHTML = '';
           }); 
         }
 
@@ -551,27 +587,30 @@ function initializeNetwork() {
         // NOTE: It's important that the player keeps overlapping the vehicle while on it, otherwise it triggers the end message
         //       (I would like to turn off the overlapping body, but that is needed for obstruction tests and all ...)
         if(data.type == 'vehicle-active') {
-          console.log("VEHICLE ACTIVE MESSAGE");
+          var vehicleInt = document.getElementById('vehicleInterface');
+          vehicleInt.style.display = 'block';
 
           // display button for leaving the vehicle
           var btn = document.createElement("button");
           btn.classList.add('buyButton');
+          btn.classList.add('vehicleButton');
           btn.innerHTML = "<span>Leave vehicle</span>";
-          dynInt.appendChild(btn);
+          vehicleInt.appendChild(btn);
           
           // send message to computer that we want to leave the vehicle
           btn.addEventListener ("click", function() {
             var msg = { 'type': 'leave-vehicle' };
             peer.send( JSON.stringify(msg) );
 
-            dynInt.innerHTML = '';
+            vehicleInt.innerHTML = '';
           }); 
         }
 
         // if player stopped OVERLAPPING vehicle (but isn't in it/exiting)
         if(data.type == 'vehicle-end') {
-          console.log("VEHICLE END MESSAGE");
-          dynInt.innerHTML = '';
+          var vehicleInt = document.getElementById('vehicleInterface');
+          vehicleInt.style.display = 'none';
+          vehicleInt.innerHTML = '';
         }
       }
     })
@@ -1207,6 +1246,14 @@ var SceneA = new Phaser.Class({
         newVehicle.setMass(100);
         newVehicle.setDrag(0.8); // lower value = slows faster
 
+        // add shadow
+        var shadowSprite = this.add.sprite(newVehicle.x, newVehicle.y, 'staticAssets');
+        shadowSprite.setFrame(3);
+        shadowSprite.setScale(4,4);
+        shadowSprite.alpha = 0.2;
+        shadowSprite.depth = 0;
+        newVehicle.shadowSprite = shadowSprite;
+
         // create its actual body
         /*
         var vehicleBody = this.vehicleBodiesActual.create(newVehicle.x, newVehicle.y, null);
@@ -1309,6 +1356,7 @@ var SceneA = new Phaser.Class({
 
     createWorkspace() {
       // find random starting location
+      // that is far enough from the WALLS and from EXISTING workspaces
       var x,y;
       var margin = 3;
       do {
@@ -1317,69 +1365,73 @@ var SceneA = new Phaser.Class({
       } while( !this.mapCheck(x, y, 10, this.existingWorkspaces) );
 
       //
-      // use the "bool shape" algorithm to create an IRREGULAR workspace shape
-      // (whilst keeping track of the border for easy wall placement later)
+      // 1) Create random path of length N, without loops or self-intersections
+      //    (this is our "walking path" through the kitchen)
       //
+      var randomLength = Math.floor(Math.random() * 5) + 5;
+      var path = this.findPathOfLength(randomLength, [x,y]);
+      var roomFloor = [];
 
-      // start two lists: points already processed, and current border points of the shape
-      // add the first random point to both lists
-      var processed = [ [x,y] ];
-      var borderPoints = [ [x,y] ];
-      var maxShapeSize = 20;
-
-      this.createRoomFloor(x, y);
-
-      var algorithmDone = false;
-      var fillProbHorizontal = 0.9;
-      var fillProbVertical = fillProbHorizontal * (2/3);
-      while(!algorithmDone) {
-        // take first point in border points
-        var p = borderPoints.shift();
-
-        // add to processed list
-        processed.push(p);
-
-        // go through neighbours
-        var dirs = [[1,0], [-1,0], [0,1], [0,-1]];
-        for(var i = 0; i < 4; i++) {
-          var newPoint = [ p[0] + dirs[i][0], p[1] + dirs[i][1] ];
-
-          // check if this is allowed according to the current map
-          if( this.map[newPoint[0]][newPoint[1]] != 0) {
-            continue;
-          }
-
-          // if not, fill it with a random probability
-          var tempProb = (i <= 1) ? fillProbHorizontal : fillProbVertical;
-          if(Math.random() <= tempProb) {
-            borderPoints.push(newPoint);
-
-            this.createRoomFloor(newPoint[0], newPoint[1]);
-          }
-        }
-
-        // stop the algorithm when we have no more border points OR the shape is already large enough
-        algorithmDone = (borderPoints.length <= 0 || processed.length > maxShapeSize);
+      // once we've found our path, create the matching room floors
+      for(var i = 0; i < path.length; i++) {
+        roomFloor.push(path[i]);
+        this.createRoomFloor(path[i][0], path[i][1]);
       }
 
       //
-      // create WALLS around the shape
-      // 
+      // 2) Add roads to start and end point of this path
+      //
+      this.extendRoad(path[0][0], path[0][1]);
+      this.extendRoad(path[randomLength-1][0], path[randomLength-1][1]);
 
-      // in case we terminated because of maximum size, concatenate both lists (together, they hold all the points)
-      processed = processed.concat(borderPoints);
-      processed = this.shuffle(processed); // also, evaluate in random order
+      //
+      // 3) Randomly place AxB rectangles across the path
+      //    (until we reach a desired minimum of cells in the workspace)
+      //
+      var minCells = Math.floor(Math.random()*10) + 20;
+      while(roomFloor.length < minCells) {
+        // grab random vertex from path
+        var p = path[ Math.floor(Math.random() * randomLength) ];
 
-      var roadPoints = [[], [], [], []];
-      var tablePoints = [];
+        // determine random rectangle size
+        var width = Math.floor(Math.random()*2) + 2;
+        var height = Math.floor(Math.random()*2) + 2;
 
-      // go through all points
-      for(var i = 0; i < processed.length; i++) {
-        var p = processed[i];
+        // place it somewhere around the vertex
+        var offsetX = Math.floor(Math.random()*width);
+        var offsetY = Math.floor(Math.random()*height);
+
+        // simply go in a rectangle around the point + offset
+        // if a cell is already occupied, just ignore it
+        // otherwise, place a room floor
+        for(var x = 0; x < width; x++) {
+          for(var y = 0; y < height; y++) {
+            var newP = [ p[0] + x - offsetX, p[1] + y - offsetY ];
+
+            // out of bounds
+            if(newP[0] < 0 || newP[0] > this.mapWidth || newP[1] < 0 || newP[1] > this.mapHeight) {
+              continue;
+            }
+
+            // cell already occupied
+            if(this.map[ newP[0] ][ newP[1] ] != 0) {
+              continue;
+            }
+
+            this.createRoomFloor(newP[0], newP[1]);
+            roomFloor.push(newP);
+          }
+        }
+      }
+
+      //
+      // 4) Go through all blocks to determine the walls (+ get possible table spots)
+      //
+      for(var i = 0; i < roomFloor.length; i++) {
+        var p = roomFloor[i];
 
         // check their neighbours
         var dirs = [[1,0], [0,1], [-1,0], [0,-1]];
-        var numWalls = 0;
         for(var d = 3; d >= 0; d--) {
           // each neighbour that EXISTS, ignore it (can't place a wall there!)
           var pX = p[0] + dirs[d][0], pY = p[1] + dirs[d][1];
@@ -1387,179 +1439,204 @@ var SceneA = new Phaser.Class({
             continue;
           }
 
-          numWalls++;
+          if(this.map[pX][pY] == 3) {
+            // if it's the start/end point of the path, make sure we have OPENINGS to the road
+            if(i == 0 || i == (randomLength - 1)) {
+              continue
 
-          // otherwise, place a wall
-          // use index "d" to determine the rotation/placement of the wall
-          var wall;
-
-          if(d == 0 || d == 2) {
-            wall = this.add.sprite(pX * this.tileWidth, pY * this.tileHeight, 'staticAssets');
-          } else {
-            wall = this.wallBodies.create(pX * this.tileWidth, pY * this.tileHeight, 'staticAssets');
-          }
-          var secondWall = null;
-
-          wall.setOrigin(0.5, 1);
-          wall.y += 0.5*this.tileHeight;
-          wall.setFrame(4 + d);
-
-          if(d == 0 || d == 2) {
-            wall.setFrame(4);
-
-            // create an extra wall above us!
-            // NOTE: The second wall does not have an overlap body, because we can never be behind it
-            secondWall = this.add.sprite(wall.x, wall.y - this.tileHeight, 'staticAssets');
-            secondWall.setOrigin(0.5, 1);
-            secondWall.setFrame(6);
-
-            if(d == 0) {
-              wall.x -= (0.5)*this.tileWidth;
-              secondWall.x = wall.x;
+            // otherwise, create these openings randomly
             } else {
-              wall.x += (0.5)*this.tileWidth;
-              secondWall.x = wall.x;
+              if(Math.random() <= 0.25) {
+                continue;
+              }
             }
-
-            secondWall.setScale(4,4);
-            secondWall.depth = wall.y;
-
-          } else if(d == 1) {
-            wall.y -= this.tileHeight;
-          }
-
-          wall.depth = wall.y;
-          wall.setScale(4,4);
-
-          // add wall shadow
-          var offsetX = 5, offsetY = 0;
-          this.shadowGraphics.fillRect(wall.x - 0.5*wall.displayWidth - offsetX, wall.y - wall.displayHeight + offsetY, wall.displayWidth, wall.displayHeight);
-
-          // now create the ACTUAL body that will function as this wall
-          var wallActual = this.wallBodiesActual.create(wall.x, wall.y, null);
-          wallActual.displayWidth = wall.displayWidth;
-          wallActual.displayHeight = wall.displayHeight * (1/4)
-
-          if(d == 0 || d == 2) {
-            wallActual.displayWidth = (1/5) * wall.displayWidth;
-            wallActual.displayHeight = wall.displayHeight;
-            //wallActual.y = wall.y - (0.5 - (1/8))*this.tileHeight;
-          } else {
-
-            // what's this? well, side walls (vertical) do not have an overlap body
-            // so ONLY refresh the (original overlap) body if d != 0 and d != 2
-            wall.refreshBody();
-          }
-
-          wallActual.setOrigin(0.5, 1);
-          wallActual.refreshBody();
-          wallActual.setVisible(false);
-          wall.myActual = wallActual;
-
-          if(d == 0 || d == 2) {
-            var secondWallActual = this.wallBodiesActual.create(secondWall.x, secondWall.y, null)
-            secondWallActual.displayWidth = (1/5) * wall.displayWidth;
-            secondWallActual.displayHeight = (1/4)*wall.displayHeight;
-            secondWallActual.setOrigin(0.5, 1);
-            secondWallActual.refreshBody();
-            secondWallActual.setVisible(false);
-
-            secondWall.myActual = secondWallActual;
           }
 
           
 
-          if(this.map[pX][pY] == 0) {
-            // save that there's a possible road point in this direction
-            // AND which wall we'd need to remove to get there
-            roadPoints[d].push( [p[0], p[1], wall, secondWall] );
-          }
-        }
-
-        // only allow tables with ALL empty space around them
-        // TO DO: Alternative is allowing tables when pushed up against a wall, or some more complex check that runs through all points
-        if(numWalls == 0) {
-          tablePoints.push(p);
+          // otherwise place a wall at this position (pX, pY) and this direction (d)
+          this.placeWall(pX, pY, d)
         }
       }
 
-      // go through some roadPoints, shuffled 
-      // (but don't actually shuffle it, otherwise we lose the direction)
-      var numOpenings = 2;
-      var curOpenings = 0;
-      var curCounter = 0;
-      var chosenOpenings = [];
-      while(curOpenings < numOpenings) {
-        if(roadPoints[curCounter] == null) { continue; }
-        if(roadPoints[curCounter].length <= 0) { continue; } // TO DO: Check if ALL roadPoints are exhausted
-        curCounter = (curCounter + 1) % 4;
-
-        // skip directions randomly
-        if(Math.random() <= 0.75) { continue; }
-
-        // pick a random point
-        // also REMOVE it from the list, so it's not used twice
-        var rP = roadPoints[curCounter].splice(Math.floor(Math.random() * roadPoints[curCounter].length), 1)[0];
-
-        var dirs = [[1,0], [0,1], [-1,0], [0,-1]];
-        var finalDir = (curCounter+2)%4; // again, reversed
-        
-        // if this road would be impossible (edge of map), don't do it
-        // NOTE: Should already be checked when ADDING possible roads
-        /*if(this.map[ rP[0] + dirs[finalDir][0] ][rP[1] + dirs[finalDir[1]] ] == -1) {
-          continue;
-        }*/
-
-        // destroy the wall
-        // (and the extra wall, if necessary)
-        rP[2].myActual.destroy();
-        rP[2].destroy();
-        if(rP[3] != null) { rP[3].myActual.destroy(); rP[3].destroy(); }
-
-        // remember the opening we chose, so we make sure not to place something there (like a table)
-        chosenOpenings.push([rP[0], rP[1]]);
-
-        // extend the road in the specificed direction
-        this.extendRoad(rP[0], rP[1], dirs, finalDir);
-
-        curOpenings++;
-      }
-
       //
-      // place tables in the work space
-      // grab randomly from possible table points, don't allow tables at openings
-      //
-      var numTables = 5;
+      // 5) Place X amount of tables and Y amount of ovens, ignoring invalid spaces (such as the walking path)
+      // 
+
+      // remove the first "pathLength" entries of the roomFloor, as they are the path (on which we may not place anything)
+      roomFloor.splice(0, randomLength);
+
+      var numTables = 6;
       for(var i = 0; i < numTables; i++) {
-        if(tablePoints.length <= 0) { break; }
+        // grab a random table spot; remove it from complete array of table spots
+        var p = roomFloor.splice(Math.floor(Math.random() * roomFloor.length), 1)[0];
 
-        var p = tablePoints.splice(Math.floor(Math.random() * tablePoints.length), 1)[0];
-
-        // if it's an opening, continue, but decrease iterator
-        var isOpening = false;
-        for(var o = 0; o < chosenOpenings.length; o++) {
-          if(chosenOpenings[o][0] == p[0] && chosenOpenings[o][1] == p[1]) {
-            isOpening = true;
-            break;
-          }
-        }
-        if(isOpening) { i--; continue; }
-
-        var table = this.createTable(p[0], p[1]);
+        // create table or oven there
+        var isOven = (i % 2 == 1); // all odd numbers are ovens, rest are default tables
+        var table = this.createTable(p[0], p[1], isOven);
       }
 
-      //
-      // once we have our shape, we must fill it
-      // 1) determine the edges of the shape; place WALLS there
-      // 2) leave several spots open; these are doors so extend ROADS to them.
-      // 3) Any cell that was used for a wall, can be turned into a table => to ensure minimum of X tables, pick randomly from list
-      //
 
+      //
       // finally, add to existing workspaces
+      //
       this.existingWorkspaces.push({ 'x': x, 'y': y });
     },
 
-    createTable(x, y) {
+    findPathOfLength(length, startPoint) {
+      // mark start point as visited
+      this.map[ startPoint[0] ][ startPoint[1] ] = 5;
+
+      // check for a path in each direction
+      var dirs = [[1,0], [0,1], [-1,0], [0,-1]];
+      dirs = this.shuffle(dirs);
+      var path = [];
+
+      for(var i = 0; i < dirs.length; i++) {
+        // try to extend the path in this direction
+        path = this.extendPath(length, startPoint, dirs[i]);
+
+        // if no such path exists, continue
+        if(path == null) {
+          continue;
+        }
+
+        // otherwise, return the path
+        path.push(startPoint);
+        return path;
+      }
+
+      // if nothing has been returned by now, no path exists!
+      return null;
+    },
+
+    extendPath(remainingLength, startPoint, curDir) {
+      // Proceed in the given direction to find our next point.
+      var point = [];    
+      point[0] = startPoint[0] + curDir[0];
+      point[1] = startPoint[1] + curDir[1];
+
+      // if this point is already marked as something else (perhaps world border, or another path, etc.), ignore it
+      if(this.map[ point[0] ][ point[1] ] != 0) {
+        return null;
+      }
+
+      // avoid touching/crossing existing elements of the path (forward, left and right dirs)
+      var dirs = [curDir, [curDir[1], -curDir[0]], [-curDir[1], curDir[0]] ];
+      for(var i = 0; i < dirs.length; i++) {
+        if( this.map[ point[0] + dirs[i][0] ][ point[1] + dirs[i][1] ] == 5 ) {
+          return null;
+        }
+      }
+
+      // mark point as visited
+      this.map[ point[0] ][ point[1] ] = 5;
+
+      // if we have reached our desired length, bubble back up!   
+      if(remainingLength <= 0) {
+        // return a new PATH, starting at POINT
+        return [ point ];
+      }
+
+      // otherwise, keep searching through forward/left/right directions
+      dirs = this.shuffle(dirs);
+      var path = [];
+      for(var i = 0; i < dirs.length; i++) {
+        path = this.extendPath(remainingLength - 1, point, dirs[i]);
+        if(path == null) { continue; }
+
+        // extend that path (found above) to include this point
+        path.push(point);
+        return path;
+      }
+
+      // No path through this point panned out, undo our attempt
+      this.map[ point[0] ][ point[1] ] = 0;
+      return null;
+    },
+
+    placeWall(pX, pY, d) {
+      // otherwise, place a wall
+      // use index "d" to determine the rotation/placement of the wall
+      var wall;
+
+      if(d == 0 || d == 2) {
+        wall = this.add.sprite(pX * this.tileWidth, pY * this.tileHeight, 'staticAssets');
+      } else {
+        wall = this.wallBodies.create(pX * this.tileWidth, pY * this.tileHeight, 'staticAssets');
+      }
+      var secondWall = null;
+
+      wall.setOrigin(0.5, 1);
+      wall.y += 0.5*this.tileHeight;
+      wall.setFrame(4 + d);
+
+      if(d == 0 || d == 2) {
+        wall.setFrame(4);
+
+        // create an extra wall above us!
+        // NOTE: The second wall does not have an overlap body, because we can never be behind it
+        secondWall = this.add.sprite(wall.x, wall.y - this.tileHeight, 'staticAssets');
+        secondWall.setOrigin(0.5, 1);
+        secondWall.setFrame(6);
+
+        if(d == 0) {
+          wall.x -= (0.5)*this.tileWidth;
+          secondWall.x = wall.x;
+        } else {
+          wall.x += (0.5)*this.tileWidth;
+          secondWall.x = wall.x;
+        }
+
+        secondWall.setScale(4,4);
+        secondWall.depth = wall.y;
+
+      } else if(d == 1) {
+        wall.y -= this.tileHeight;
+      }
+
+      wall.depth = wall.y;
+      wall.setScale(4,4);
+
+      // add wall shadow
+      var offsetX = 5, offsetY = 0;
+      this.shadowGraphics.fillRect(wall.x - 0.5*wall.displayWidth - offsetX, wall.y - wall.displayHeight + offsetY, wall.displayWidth, wall.displayHeight);
+
+      // now create the ACTUAL body that will function as this wall
+      var wallActual = this.wallBodiesActual.create(wall.x, wall.y, null);
+      wallActual.displayWidth = wall.displayWidth;
+      wallActual.displayHeight = wall.displayHeight * (1/4)
+
+      if(d == 0 || d == 2) {
+        wallActual.displayWidth = (1/5) * wall.displayWidth;
+        wallActual.displayHeight = wall.displayHeight;
+        //wallActual.y = wall.y - (0.5 - (1/8))*this.tileHeight;
+      } else {
+
+        // what's this? well, side walls (vertical) do not have an overlap body
+        // so ONLY refresh the (original overlap) body if d != 0 and d != 2
+        wall.refreshBody();
+      }
+
+      wallActual.setOrigin(0.5, 1);
+      wallActual.refreshBody();
+      wallActual.setVisible(false);
+      wall.myActual = wallActual;
+
+      if(d == 0 || d == 2) {
+        var secondWallActual = this.wallBodiesActual.create(secondWall.x, secondWall.y, null)
+        secondWallActual.displayWidth = (1/5) * wall.displayWidth;
+        secondWallActual.displayHeight = (1/4)*wall.displayHeight;
+        secondWallActual.setOrigin(0.5, 1);
+        secondWallActual.refreshBody();
+        secondWallActual.setVisible(false);
+
+        secondWall.myActual = secondWallActual;
+      }
+
+    },
+
+    createTable(x, y, isOven = false) {
       // create the table body with right size and all
       var table = this.tableBodies.create(x * this.tileWidth, y * this.tileHeight, 'buildings');
 
@@ -1567,7 +1644,7 @@ var SceneA = new Phaser.Class({
       // frames: 28 = regular table, 29 = oven
       var tableType = 'regular';
       table.setFrame(28);
-      if(Math.random() <= 0.5) { 
+      if(isOven) { 
         tableType = 'oven'; 
         table.setFrame(29);
       }
@@ -2871,6 +2948,9 @@ var SceneA = new Phaser.Class({
           p.myVehicle.depth = p.myVehicle.y;
           p.depth = p.myVehicle.depth - 1;
           p.shadowSprite.setVisible(false);
+
+          p.myVehicle.shadowSprite.x = p.myVehicle.x;
+          p.myVehicle.shadowSprite.y = p.myVehicle.y;
         } else {
           p.shadowSprite.setVisible(true);
         }

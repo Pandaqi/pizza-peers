@@ -102,7 +102,8 @@
         image-rendering: -moz-crisp-edges;
         image-rendering: crisp-edges;
 
-        margin:10px;
+        margin-left: 10px;
+        margin-right: 10px;
       }
 
       .ingMoney {
@@ -117,7 +118,8 @@
         image-rendering: -moz-crisp-edges;
         image-rendering: crisp-edges;
 
-        margin:10px;
+        margin-left: 10px;
+        margin-right: 10px;
       }
 
       /* now, each ingredient simply gets a proper backgruond-position in the code */
@@ -127,6 +129,50 @@
         align-content: center;
         align-items: center;
         justify-content: center;
+
+        border-radius: 5px;
+        border: 0;
+        color: black;
+        background-color: #CCCCCC;
+
+        padding: 10px;
+        margin-top: 2px;
+        margin-bottom:2px;
+      }
+
+      .singleDough {
+        color: white;
+        background-color: #4b1207; /* #8f563b; */
+      }
+
+      .singleTomato {
+        color: white;
+        background-color: #680000; /* #ac3232; */
+      }
+
+      .singleCheese {
+        color: white;
+        background-color: #b35008; /* #f7940c; */
+      }
+
+      .singleSpice {
+        color: white;
+        background-color: #07250b; /* #4b692f; */
+      }
+
+      .singleChampignon {
+        color: white;
+        background-color: #504033; /* #361a12; */  /* #7a5e46; */
+      }
+
+      .buildingButton {
+        color: black;
+        background-color: #639bff;
+      }
+
+      .vehicleButton {
+        color: white;
+        background-color: #333;
       }
 
       #allergyInterface {
@@ -173,6 +219,12 @@
         <button id="sendMessageBtn">Send Message</button>
       </div>
 
+      <!-- This shows a button for entering/leaving vehicles -->
+      <!-- It's a separate interface, because you can actually BE inside a vehicle, as opposed to merely INTERACT with it -->
+      <div id="vehicleInterface" style="display:none;">
+      </div>
+
+      <!-- "Dynamic Interface" => this is updated by the game to show your current options, such as buttons to drop/pick up ingredients -->
       <div id="dynamicInterface">
       </div>
     </main>

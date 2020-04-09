@@ -201,7 +201,7 @@ function initializeNetwork() {
     var peer = new SimplePeer({
       initiator: initiator,
       trickle: false,
-      config: { iceServers: [] },
+      config: { iceServers: [{ urls: 'stun:stunserver.org:3478' }, { urls: "turn:numb.viagenie.ca:3478", credential:"HupseFlups2", username:"cyttildalionzo@gmail.com" }] },
     })
 
     // add peer to peers list

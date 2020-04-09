@@ -38,7 +38,7 @@ function initializeNetwork() {
 
   // if browser doesn't support WebSocket, just show some notification and exit
   if (!window.WebSocket) {
-    status.innerHTML = 'Sorry, but your browser doesn\'t support WebSocket.';
+    updateStatus('Sorry, but your browser doesn\'t support WebSocket.');
     return;
   }
 
@@ -50,7 +50,7 @@ function initializeNetwork() {
     // an error occurred when sending/receiving data
 
     // just in case there were some problems with connection...
-    status.innerHTML = 'Sorry, but there\'s some problem with your connection or the server is down.';
+    updateStatus('Sorry, but there\'s some problem with your connection or the server is down.');
   };
 
   connection.onmessage = function (message) {
@@ -71,7 +71,7 @@ function initializeNetwork() {
       // document.getElementById('messageStream').innerHTML += 'Room Code:' + message.room
 
       // display confirmation
-      status.innerHTML = 'Game created!';
+      updateStatus('Game created!');
 
       // save room code on connection
       connection.room = message.room
@@ -84,11 +84,11 @@ function initializeNetwork() {
     if(message.type == 'error') {
       // differentiate error message based on the type of error
       if(message.val == 'wrong room') {
-        status.innerHTML = 'Sorry, that room does not exist. Reload and try again.';
+        updateStatus('Sorry, that room does not exist. Reload and try again.');
       } else if(message.val == 'no player') {
-        status.innerHTML = 'Tried to reconnect, but that player doesn\'t exist ...';
+        updateStatus('Tried to reconnect, but that player doesn\'t exist ...');
       } else {
-        status.innerHTML = 'Error: something went wrong, but we don\'t know what ... perhaps try again?';
+        updateStatus('Error: something went wrong, but we don\'t know what ... perhaps try again?');
       }
     }
 
@@ -128,7 +128,7 @@ function initializeNetwork() {
       document.getElementById('overlay-createJoin').style.display = 'none';
 
       // give some feedback
-      status.innerHTML = 'Creating room ...';
+      updateStatus('Creating room ...');
 
       var message = { "action": 'createRoom' }
 
@@ -145,17 +145,17 @@ function initializeNetwork() {
       var usn = document.getElementById('usernameInput').value;
 
       if(roomVal.length != 4) {
-        status.innerHTML = 'Incorrect room code!';
+        updateStatus('Incorrect room code!');
         return
       }
 
       if(usn.length <= 2) {
-        status.innerHTML = 'Username too short!';
+        updateStatus('Username too short!');
         return;
       }
 
       if(usn.length >= 20) {
-        status.innerHTML = 'Username too long!';
+        updateStatus('Username too long!');
         return;
       }
 
@@ -167,7 +167,7 @@ function initializeNetwork() {
       document.getElementById('overlay-createJoin').style.display = 'none';
 
       // give some feedback
-      status.innerHTML = 'Connecting ... (this may take 5-10 seconds)';
+      updateStatus('Connecting ... (this may take 5-10 seconds)');
 
       // Create peer (initiator = true)
       // NOTE: Once the peer is done and it can start pairing, it will inform the websocket server
@@ -187,8 +187,6 @@ function initializeNetwork() {
       // clear text area
       document.getElementById('messageContent').value = '';
   });
-
-
 
   /*
    * This function initializes a (right type of) peer
@@ -223,7 +221,7 @@ function initializeNetwork() {
         peer.hasDisconnected = true;
 
         // inform players on screen
-        status.innerHTML = '<p>Oh no, player ' + peer.curClientUsername + ' disconnected!</p><p>To reconnect, simply go to the website and log in with the exact same username.</p>';
+        updateStatus('<p>Oh no, player ' + peer.curClientUsername + ' disconnected!</p><p>To reconnect, simply go to the website and log in with the exact same username.</p>');
 
         // pause the game
         var gm = GAME.scene.keys.sceneA;
@@ -266,7 +264,7 @@ function initializeNetwork() {
       // otherwise, we're the computer
       } else {
         // display confirmation
-        status.innerHTML = 'You are connected!';
+        updateStatus('You are connected!');
 
         // add player into the game
         GAME.scene.keys.sceneA.addPlayer(peer);
@@ -347,6 +345,11 @@ function initializeNetwork() {
       }
 
       if(data.type == 'game-end') {
+        // simply clear all other interfaces
+        updateStatus('');
+        document.getElementById('vehicleInterface').innerHTML = '';
+        document.getElementById('allergyInterface').innerHTML = '';
+
         var dynInt = document.getElementById('dynamicInterface');
         dynInt.innerHTML = '<p style="text-align:center;">GAME OVER!</p>';
 
@@ -678,6 +681,16 @@ function initializeNetwork() {
         }
       }
     })
+  }
+
+  function updateStatus(text) {
+    if(text == '') {
+       document.getElementById('status-container').style.display = 'none';
+    } else {
+      document.getElementById('status-container').style.display = 'block';      
+    }
+
+    status.innerHTML = text;
   }
 
   function mouseUp(ev) {
@@ -1115,7 +1128,7 @@ var SceneA = new Phaser.Class({
       //
       // 4) Place some buildings around the map
       //
-      var numBuildings = 30;
+      var numBuildings = 30 + Math.floor(Math.random()*20);
       this.orderAreas = this.physics.add.staticGroup();
       for(var i = 0; i < numBuildings; i++) {
         // search for a free (x,y) spot
@@ -1243,7 +1256,7 @@ var SceneA = new Phaser.Class({
       //
       this.natureBodies = this.physics.add.staticGroup();
       this.natureBodiesActual = this.physics.add.staticGroup();
-      var numNature = 30;
+      var numNature = 30 + Math.floor(Math.random() * 20);
       for(var i = 0; i < numNature; i++) {
         // search for a free (x,y) spot
         var x,y
@@ -1831,13 +1844,13 @@ var SceneA = new Phaser.Class({
       // Combi Pizzas = will buildings ask for combined pizzas, or just single ingredients?
       // Bake Pizzas = must pizzas be baked before delivering?
       // Heat variation = can pizzas be burned, or slowly cool down?
-      // Vehicles = are there vehicles in the world?
+      // ( Vehicles = are there vehicles in the world?  => I've determined the game is way more fun with vehicles always enabled )
       // Money Penalty = do you get a money penalty for failing orders? (Alternatives for easier money management: you GET money for asking orders, or money automatically increases slightly over time)
       var difSettings = [
-        { "allergies": false, "autoOrders": true, "combiPizzas": false, "bakePizzas": false, "heatVariation": false, "vehicles": false, "moneyPenalty": false },
-        { "allergies": true, "autoOrders": true, "combiPizzas": true, "bakePizzas": false, "heatVariation": false, "vehicles": false, "moneyPenalty": false },
-        { "allergies": true, "autoOrders": false, "combiPizzas": true, "bakePizzas": true, "heatVariation": false, "vehicles": false, "moneyPenalty": false },
-        { "allergies": true, "autoOrders": false, "combiPizzas": true, "bakePizzas": true, "heatVariation": true, "vehicles": true, "moneyPenalty": true },
+        { "allergies": false, "autoOrders": true, "combiPizzas": false, "bakePizzas": false, "heatVariation": false, "moneyPenalty": false },
+        { "allergies": true, "autoOrders": true, "combiPizzas": true, "bakePizzas": false, "heatVariation": false, "moneyPenalty": false },
+        { "allergies": true, "autoOrders": false, "combiPizzas": true, "bakePizzas": true, "heatVariation": false, "moneyPenalty": false },
+        { "allergies": true, "autoOrders": false, "combiPizzas": true, "bakePizzas": true, "heatVariation": true, "moneyPenalty": true },
       ];
 
       // now set difficulty variable to the corresponding entry in the settings
@@ -1977,10 +1990,8 @@ var SceneA = new Phaser.Class({
     executeEvent(ev) {
       if(ev.type == 'placeOrder') {
         // Plan the next order event
-        var randTime = Math.random() * 2000 + 1000;
-        var randBuilding = this.grabRandomBuilding();
-
-        this.addEventToQueue('placeOrder', randTime, { 'building': randBuilding });
+        var randTime = Math.random() * 1000 + 1000;
+        this.addEventToQueue('placeOrder', randTime);
 
         // if we already have too many orders, don't create a new one
         // otherwise, keep track of the currently outstanding orders (which is both ORDERING and WAITING)
@@ -2023,8 +2034,11 @@ var SceneA = new Phaser.Class({
           moIngNum = 1;
         }
 
+        // now determine a random building for this order
+        var randBuilding = this.grabRandomBuilding();
+
         // save order on the building
-        var b = ev.params.building;
+        var b = randBuilding;
         b.myOrder = orderNumber;
         b.myOrderIngredientNum = moIngNum;
         b.myOrderID++;
@@ -2050,17 +2064,20 @@ var SceneA = new Phaser.Class({
             yoyo: true
         });
 
-        // Plan an event for this order ALMOST running out
-        // 30 seconds before warning, then another 15 until it runs out
-        var orderPickupTime = 30 * 1000;
-        this.addEventToQueue('almostFailed', orderPickupTime, { 'building': b, 'id': b.myOrderID, 'statusCheck': 'ordering' });
-
         // if we have AUTO orders, automatically take the order as well!
         // simply use the first player's peer "as if" they did this action
         if(this.difficultySettings.autoOrders) {
           this.players[0].currentArea = b.myArea;
           this.takeOrder(this.players[0].myPeer);
+
+          // then return out of this, as we do not want to plan an almostFailed event for this
+          return;
         }
+
+        // Plan an event for this order ALMOST running out
+        // 30 seconds before warning, then another 15 until it runs out
+        var orderPickupTime = 30 * 1000;
+        this.addEventToQueue('almostFailed', orderPickupTime, { 'building': b, 'id': b.myOrderID, 'statusCheck': 'ordering' });
       
       } else if(ev.type == 'almostFailed') {
         // if this building is STILL ordering, oh no!

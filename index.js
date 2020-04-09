@@ -42,6 +42,7 @@ wsServer.on('request', function(request) {
 
 	// create a persistent variable for our roomID; means we don't need to look it up all the time, which is faster
 	var roomID = -1;
+	var isServer = false;
 
 	// This is the most important callback for us, we'll handle
 	// all messages from users here.
@@ -63,20 +64,23 @@ wsServer.on('request', function(request) {
 			// each room simply knows which socket is the server, and which are the players
 			rooms[id] = {
 				"server": connection,
-				"players": []
+				"players": [],
+				"gameStarted": false
 			};
 
 			// remember our roomID
 			roomID = id;
 
+			// rember we function as a server
+			isServer = true;
+
 			// beam the room number back to the connection
 			connection.sendUTF(JSON.stringify({ "type": "confirmRoom", "room": roomID }));
-		}
 
 		//
 		// if this message is a JOIN ROOM message
 		//
-		if(message.action == "joinRoom") {
+		} else if(message.action == "joinRoom") {
 			// which room should we join?
 			var roomToJoin = message.room
 
@@ -91,10 +95,23 @@ wsServer.on('request', function(request) {
 				return;
 			}
 
-			// does the username already exist? If so, add random characters to the end until it's unique
-			while(rooms[roomToJoin].players[usn] != undefined) {
-				var randChar = "abcdefghijklmnopqrstuvwxyz0123456789"
-				usn = usn + randChar.charAt( Math.floor(Math.random() * randChar.length) )
+
+			// if the game has already started, this can only be a RECONNECT
+			// thus, check if the username already exists; if not, return and do nothing
+			if(rooms[roomToJoin].gameStarted) {
+				if(rooms[roomToJoin].players[usn] == undefined) {
+					var msg = { 'type': 'error', 'val': 'no player' };
+					connection.sendUTF( JSON.stringify(msg) );
+					return;
+				}
+
+			// otherwise, if the game is still accepting players ...
+			} else {
+				// does the username already exist? If so, add random characters to the end until it's unique
+				while(rooms[roomToJoin].players[usn] != undefined) {
+					var randChar = "abcdefghijklmnopqrstuvwxyz0123456789"
+					usn = usn + randChar.charAt( Math.floor(Math.random() * randChar.length) )
+				}
 			}
 
 			// add this player to that room
@@ -114,12 +131,11 @@ wsServer.on('request', function(request) {
 
 			// now relay this offer to the server
 			rooms[roomToJoin].server.sendUTF(JSON.stringify(offer));
-		}
 
 		//
 		// if this message is an OFFER RESPONSE
 		//
-		if(message.action == "offerResponse") {
+		} else if(message.action == "offerResponse") {
 			// get the client that should receive it
 			var receivingClient = message.clientUsername
 
@@ -128,6 +144,12 @@ wsServer.on('request', function(request) {
 
 			// send the response
 			rooms[roomID].players[receivingClient].sendUTF(JSON.stringify(offerResponse));
+
+		//
+		// if this message is a START GAME signal
+		//
+		} else if(message.action == 'startGame') {
+			rooms[roomID].gameStarted = true;
 		}
 
 		/*
@@ -139,6 +161,11 @@ wsServer.on('request', function(request) {
 
 	connection.on('close', function(connection) {
 		// close user connection
+
+		// if we were the server of a game, remove that whole game
+		if(isServer) {
+			delete rooms[roomID];
+		}
 	});
 });
 

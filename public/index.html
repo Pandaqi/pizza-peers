@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8">
-    <title>WebSockets test</title>
+    <title>Pizza Peers</title>
 
     <!-- Default viewport stuff to make the website nicely zoomed in on mobile -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -38,10 +38,35 @@
         font-size: 16pt;
         font-family: 'VT323', monospace;
         box-sizing: border-box;
+
+        border-radius: 5px;
+        border: 0;
+        color: black;
+        background-color: #CCCCCC;
+
+        padding: 10px;
+        margin-top: 2px;
+        margin-bottom:2px;
+
+        transition: background-color 0.33s, color 0.33s;
+      }
+
+      input {
+        background-color: #EEE;
+      }
+
+      button:hover {
+        background-color: #333;
+        color: white;
+        cursor: pointer;
       }
 
       input[type="text"] {
         text-transform: uppercase;
+      }
+
+      input[type="radio"] {
+        width: initial;
       }
 
       #phaser-game {
@@ -129,15 +154,6 @@
         align-content: center;
         align-items: center;
         justify-content: center;
-
-        border-radius: 5px;
-        border: 0;
-        color: black;
-        background-color: #CCCCCC;
-
-        padding: 10px;
-        margin-top: 2px;
-        margin-bottom:2px;
       }
 
       .singleDough {
@@ -185,6 +201,91 @@
         align-items: center;
         justify-content: center;
       }
+
+
+      #specialLink {
+        text-align: center;
+      }
+
+      #specialLink a {
+        padding: 5px;
+        padding-left: 15px;
+        padding-right: 15px;
+        margin: 5px;
+        background-color: brown;
+        display: inline-block;
+        color: white;
+
+        border-radius: 5px;
+
+        transition: background-color 0.3s, color 0.3s;
+      }
+
+      /*@keyframes shake {
+        10%, 90% {
+          transform: translate3d(-1px, 0, 0);
+        }
+        
+        20%, 80% {
+          transform: translate3d(2px, 0, 0);
+        }
+
+        30%, 50%, 70% {
+          transform: translate3d(-4px, 0, 0);
+        }
+
+        40%, 60% {
+          transform: translate3d(4px, 0, 0);
+        }
+      }
+
+      #specialLink a:hover {
+        background-color: #CCC;
+        color: black;
+
+        animation: shake 0.82s cubic-bezier(.36,.07,.19,.97) both;
+        transform: translate3d(0, 0, 0);
+        backface-visibility: hidden;
+        perspective: 1000px;
+      }*/
+
+      #specialLink a:hover {
+        background-color: #CCC;
+        color: black;
+        
+        -webkit-animation-name: wiggle;
+        -ms-animation-name: wiggle;
+        -ms-animation-duration: 1000ms;
+        -webkit-animation-duration: 1000ms;
+        -webkit-animation-iteration-count: 1;
+        -ms-animation-iteration-count: 1;
+        -webkit-animation-timing-function: ease-in-out;
+        -ms-animation-timing-function: ease-in-out;
+      }
+
+      @-webkit-keyframes wiggle {
+        0% {-webkit-transform: rotate(10deg);}
+        25% {-webkit-transform: rotate(-10deg);}
+        50% {-webkit-transform: rotate(20deg);}
+        75% {-webkit-transform: rotate(-5deg);}
+        100% {-webkit-transform: rotate(0deg);}
+      }
+
+      @-ms-keyframes wiggle {
+        0% {-ms-transform: rotate(1deg);}
+        25% {-ms-transform: rotate(-1deg);}
+        50% {-ms-transform: rotate(1.5deg);}
+        75% {-ms-transform: rotate(-5deg);}
+        100% {-ms-transform: rotate(0deg);}
+      }
+
+      @keyframes wiggle {
+        0% {transform: rotate(10deg);}
+        25% {transform: rotate(-10deg);}
+        50% {transform: rotate(20deg);}
+        75% {transform: rotate(-5deg);}
+        100% {transform: rotate(0deg);}
+      }
     </style>
   </head>
   <body>
@@ -196,12 +297,22 @@
 
     <!-- Create/Join game screen -->
     <main id="overlay-createJoin">
+      <!-- Game logo (animated GIF) -->
+      <img src="assets/mainLogo.gif" style="width: 100%;" />
+
+      <!-- Link to how-to-play -->
+      <div id="specialLink">
+        <a href="http://pandaqi.com/pizza-peers">Learn how to play!</a>
+      </div>
+      
+      <!-- Creating a new game (computer) -->
       <div>
         <button id="createGameBtn">CREATE GAME</button>
       </div>
 
       <hr />
 
+      <!-- Joining an existing game (device = smartphone, tablet, whatever) -->
       <div>
         <input type="text" id="roomInput" placeholder="room code" />
         <input type="text" id="usernameInput" placeholder="username" />
@@ -210,10 +321,11 @@
     </main>
 
     <main>
+      <!-- This interface permanently shows your allergies (and is empty if allergies are not enabled) -->
       <div id="allergyInterface"></div>
 
+      <!-- These were used for testing the system via chat messages -->
       <div id="messageStream"></div>
-
       <div id="messageForm" style="display:none; margin-bottom:50px;">
         <textarea id="messageContent" style="width:100%;"></textarea>
         <button id="sendMessageBtn">Send Message</button>

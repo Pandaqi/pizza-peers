@@ -85,6 +85,8 @@ function initializeNetwork() {
       // differentiate error message based on the type of error
       if(message.val == 'wrong room') {
         status.innerHTML = 'Sorry, that room does not exist. Reload and try again.';
+      } else if(message.val == 'no player') {
+        status.innerHTML = 'Tried to reconnect, but that player doesn\'t exist ...';
       } else {
         status.innerHTML = 'Error: something went wrong, but we don\'t know what ... perhaps try again?';
       }
@@ -207,9 +209,26 @@ function initializeNetwork() {
 
     // remember we're not connected yet
     peer.isConnected = false;
+    peer.hasDisconnected = false;
     
     peer.on('error', function(err) {
       console.log('error', err)
+    })
+
+    peer.on('close', function() {
+      console.log("Peer closed");
+
+      // if we are the computer, we must remember this peer has disconnected (so we can reconnect it later)
+      if(!initiator) {
+        peer.hasDisconnected = true;
+
+        // inform players on screen
+        status.innerHTML = '<p>Oh no, player ' + peer.curClientUsername + ' disconnected!</p><p>To reconnect, simply go to the website and log in with the exact same username.</p>';
+
+        // pause the game
+        var gm = GAME.scene.keys.sceneA;
+        gm.scene.pause();
+      }
     })
 
     peer.on('signal', function(data) {
@@ -275,6 +294,14 @@ function initializeNetwork() {
         // remember we're vip
         peer.isVIP = true;
 
+        // create a form for choosing difficulty
+        document.getElementById('dynamicInterface').innerHTML = '\
+          <label for="difficultyForm">Difficulty: </label>\
+          <input type="radio" name="difficultyForm" value="0" checked="checked">Amateur</input>\
+          <input type="radio" name="difficultyForm" value="1">Cook</input>\
+          <input type="radio" name="difficultyForm" value="2">Chef</input>\
+          <input type="radio" name="difficultyForm" value="3">Master Chef</input>';
+
         // create button to start the game
         var button = document.createElement("button");
         button.classList.add('buyButton');
@@ -282,42 +309,79 @@ function initializeNetwork() {
         document.getElementById('dynamicInterface').appendChild(button);
 
         button.addEventListener ("click", function() {
+          // get value from the form
+          var radios = document.getElementsByName('difficultyForm');
+          var difficulty = 0;
+
+          for (var i = 0, length = radios.length; i < length; i++) {
+            if (radios[i].checked) {
+              difficulty = parseInt(radios[i].value);
+              break;
+            }
+          }
+
           // remove button again
           document.getElementById('dynamicInterface').innerHTML = '';
 
           console.log("Sent message to start the game");
 
           // send message to start the game
-          var msg = { 'type': 'start-game' }
+          var msg = { 'type': 'start-game', 'difficulty': difficulty }
           peer.send( JSON.stringify(msg) );
         });
       }
 
       if(data.type == 'start-game') {
+        // inform the SERVER that this game has started, so only reconnects are allowed
+        var msg = { 'action': 'startGame' };
+        connection.send( JSON.stringify(msg) );
+
+        // set difficulty and start the game
+        gm.difficulty = data.difficulty;
         gm.startGame();
       }
 
       if(data.type == 'restart-game') {
+        gm.difficulty = data.difficulty;
         gm.restartGame();
       }
 
       if(data.type == 'game-end') {
         var dynInt = document.getElementById('dynamicInterface');
-        dynInt.innerHTML = 'GAME OVER!';
+        dynInt.innerHTML = '<p style="text-align:center;">GAME OVER!</p>';
 
         // if we are the vip, get the button to restart
         if(peer.isVIP) {
+          // create a form for choosing difficulty
+          dynInt.innerHTML += '\
+            <label for="difficultyForm">Difficulty: </label>\
+            <input type="radio" name="difficultyForm" value="0" checked="checked">Amateur</input>\
+            <input type="radio" name="difficultyForm" value="1">Cook</input>\
+            <input type="radio" name="difficultyForm" value="2">Chef</input>\
+            <input type="radio" name="difficultyForm" value="3">Master Chef</input>';
+
           var button = document.createElement("button");
           button.classList.add('buyButton');
           button.innerHTML = "<span>Play again?</span>";
           dynInt.appendChild(button);
 
           button.addEventListener ("click", function() {
+            // get value from the form
+            var radios = document.getElementsByName('difficultyForm');
+            var difficulty = 0;
+
+            for (var i = 0, length = radios.length; i < length; i++) {
+              if (radios[i].checked) {
+                difficulty = parseInt(radios[i].value);
+                break;
+              }
+            }
+
             // remove button again
             dynInt.innerHTML = '';
 
             // send message to start the game
-            var msg = { 'type': 'restart-game' }
+            var msg = { 'type': 'restart-game', 'difficulty': difficulty }
             peer.send( JSON.stringify(msg) );
           });
         }
@@ -780,7 +844,7 @@ var SceneA = new Phaser.Class({
       // Add "strikes" (5 strikes fails the level) at the top right
       // These keep track of the number of failed orders; fill them all
       //
-      this.maxAllowedFails = 5;
+      this.maxAllowedFails = 3;
       this.strikeSprites = [];
       this.numFailedOrders = 0;
       var margin = 10;
@@ -1144,6 +1208,16 @@ var SceneA = new Phaser.Class({
         orderSprite.setScale(4,4);
         orderSprite.depth = building.depth + 0.01;
 
+        // animate this sprite (just softly go up and down, repeat infinitely)
+        var tween = this.tweens.add({
+            targets: orderSprite,
+            y: { from: orderSprite.y, to: orderSprite.y - 16 },
+            ease: 'Linear',
+            duration: 1000,
+            repeat: -1,
+            yoyo: true
+        });
+
         building.myOrderSprite = orderSprite;
         building.myOrderID = 0;
 
@@ -1244,7 +1318,7 @@ var SceneA = new Phaser.Class({
 
         // make vehicles heavy and make them stop/slow automatically over time
         newVehicle.setMass(100);
-        newVehicle.setDrag(0.8); // lower value = slows faster
+        newVehicle.setDrag(0.1); // lower value = slows faster
 
         // add shadow
         var shadowSprite = this.add.sprite(newVehicle.x, newVehicle.y, 'staticAssets');
@@ -1409,7 +1483,7 @@ var SceneA = new Phaser.Class({
             var newP = [ p[0] + x - offsetX, p[1] + y - offsetY ];
 
             // out of bounds
-            if(newP[0] < 0 || newP[0] > this.mapWidth || newP[1] < 0 || newP[1] > this.mapHeight) {
+            if(newP[0] < 0 || newP[0] >= this.mapWidth || newP[1] < 0 || newP[1] >= this.mapHeight) {
               continue;
             }
 
@@ -1666,7 +1740,7 @@ var SceneA = new Phaser.Class({
       //table.myContentSprite.setFrame(table.myContent);
 
       // offset depth to make room for walls
-      table.depth = table.y - 2;
+      table.depth = table.y - 0.025;
       table.myContentSprite.depth = table.depth + 0.01;
 
       // if it's an oven, add the HEAT meter 
@@ -1748,31 +1822,53 @@ var SceneA = new Phaser.Class({
     startGame() {
       var numPlayers = this.players.length;
 
-      console.log("START GAAMMEEE");
+      //
+      // determine settings based on difficulty
+      //
 
-      // divide allergies randomly among players
-      // but only if we have more than a single player!
-      if(numPlayers > 1) {
-        var allergies = [0,1,2,3,4];
-        allergies = this.shuffle(allergies);
+      // Allergies = do players receive allergies at the start of the game?
+      // Auto Orders = do buildings automatically order something, or do you first need to go there and _ask_ them?
+      // Combi Pizzas = will buildings ask for combined pizzas, or just single ingredients?
+      // Bake Pizzas = must pizzas be baked before delivering?
+      // Heat variation = can pizzas be burned, or slowly cool down?
+      // Vehicles = are there vehicles in the world?
+      // Money Penalty = do you get a money penalty for failing orders? (Alternatives for easier money management: you GET money for asking orders, or money automatically increases slightly over time)
+      var difSettings = [
+        { "allergies": false, "autoOrders": true, "combiPizzas": false, "bakePizzas": false, "heatVariation": false, "vehicles": false, "moneyPenalty": false },
+        { "allergies": true, "autoOrders": true, "combiPizzas": true, "bakePizzas": false, "heatVariation": false, "vehicles": false, "moneyPenalty": false },
+        { "allergies": true, "autoOrders": false, "combiPizzas": true, "bakePizzas": true, "heatVariation": false, "vehicles": false, "moneyPenalty": false },
+        { "allergies": true, "autoOrders": false, "combiPizzas": true, "bakePizzas": true, "heatVariation": true, "vehicles": true, "moneyPenalty": true },
+      ];
 
-        var counter = 0;
-        var doneDividing = false
-        while(!doneDividing) {
-          // give the next player the next allergy in line
-          // modulo wrap both, for we don't know how long either must continue/repeat 
-          this.players[counter % numPlayers].myAllergies.push(allergies[counter % allergies.length]);
+      // now set difficulty variable to the corresponding entry in the settings
+      this.difficultySettings = difSettings[this.difficulty];
 
-          // we're done if every player has at least ONE thing and we've divided ALL allergies
-          counter++;
-          doneDividing = (counter >= numPlayers && counter >= allergies.length);
-        }
+      // only use allergies if they are enabled
+      if(this.difficultySettings.allergies) {
+        // divide allergies randomly among players
+        // but only if we have more than a single player!
+        if(numPlayers > 1) {
+          var allergies = [0,1,2,3,4];
+          allergies = this.shuffle(allergies);
 
-        // finally, send out messages to all players to display their allergies!
-        for(var i = 0; i < numPlayers; i++) {
-          var p = this.players[i];
-          var msg = { 'type': 'allergies', 'val': p.myAllergies };
-          p.myPeer.send( JSON.stringify(msg) );
+          var counter = 0;
+          var doneDividing = false
+          while(!doneDividing) {
+            // give the next player the next allergy in line
+            // modulo wrap both, for we don't know how long either must continue/repeat 
+            this.players[counter % numPlayers].myAllergies.push(allergies[counter % allergies.length]);
+
+            // we're done if every player has at least ONE thing and we've divided ALL allergies
+            counter++;
+            doneDividing = (counter >= numPlayers && counter >= allergies.length);
+          }
+
+          // finally, send out messages to all players to display their allergies!
+          for(var i = 0; i < numPlayers; i++) {
+            var p = this.players[i];
+            var msg = { 'type': 'allergies', 'val': p.myAllergies };
+            p.myPeer.send( JSON.stringify(msg) );
+          }
         }
       }
 
@@ -1881,7 +1977,7 @@ var SceneA = new Phaser.Class({
     executeEvent(ev) {
       if(ev.type == 'placeOrder') {
         // Plan the next order event
-        var randTime = Math.random() * 10000 + 10000;
+        var randTime = Math.random() * 2000 + 1000;
         var randBuilding = this.grabRandomBuilding();
 
         this.addEventToQueue('placeOrder', randTime, { 'building': randBuilding });
@@ -1901,17 +1997,30 @@ var SceneA = new Phaser.Class({
         // Generate a random order
         // (always start with dough, then just randomly add stuff on top)
         //
-        var order = [1,0,0,0,0];
+        var order = [0,0,0,0,0];
         var orderNumber = 1;
         var moIngNum = 1;
 
-        for(var i = 1; i < 5; i++) {
-          order[i] = Math.round(Math.random());
-          orderNumber += order[i] * Math.pow(2, i);
+        // if combined pizzas are allowed, make one like that
+        if(this.difficultySettings.combiPizzas) {
+          order[0] = 1;
 
-          if(order[i] == 1) {
-            moIngNum++;
+          for(var i = 1; i < 5; i++) {
+            order[i] = Math.round(Math.random());
+            orderNumber += order[i] * Math.pow(2, i);
+
+            if(order[i] == 1) {
+              moIngNum++;
+            }
           }
+
+        // otherwise, pick a single ingredient
+        } else {
+          var randInd = Math.floor(Math.random() * order.length);
+
+          order[randInd] = 1;
+          orderNumber = Math.pow(2, randInd);
+          moIngNum = 1;
         }
 
         // save order on the building
@@ -1931,10 +2040,27 @@ var SceneA = new Phaser.Class({
         b.myOrderMark.setVisible(true);
         b.myOrderMark.anims.play('orderJump', true);
 
+        // Fade the whole building in/out
+        b.myTween = this.tweens.add({
+            targets: b,
+            alpha: { from: 1.0, to: 0.0 },
+            ease: 'Linear',       // 'Cubic', 'Elastic', 'Bounce', 'Back'
+            duration: 500,
+            repeat: -1,
+            yoyo: true
+        });
+
         // Plan an event for this order ALMOST running out
         // 30 seconds before warning, then another 15 until it runs out
         var orderPickupTime = 30 * 1000;
         this.addEventToQueue('almostFailed', orderPickupTime, { 'building': b, 'id': b.myOrderID, 'statusCheck': 'ordering' });
+
+        // if we have AUTO orders, automatically take the order as well!
+        // simply use the first player's peer "as if" they did this action
+        if(this.difficultySettings.autoOrders) {
+          this.players[0].currentArea = b.myArea;
+          this.takeOrder(this.players[0].myPeer);
+        }
       
       } else if(ev.type == 'almostFailed') {
         // if this building is STILL ordering, oh no!
@@ -2001,6 +2127,12 @@ var SceneA = new Phaser.Class({
           randDir = dirs.splice(i, 1)[0];
           break;
         }
+      }
+
+      // if we could NOT find a suitable direction, just overwrite randomly
+      if(randDir == null) {
+        var lastResort = Math.floor(Math.random()*4);
+        randDir = dirs.splice(lastResort, 1)[0];
       }
 
       // take over the custom dirs (if available)
@@ -2162,9 +2294,9 @@ var SceneA = new Phaser.Class({
     sendTableMessage(player, table) {
       // find all players connected to this table
       for(var i = 0; i < this.players.length; i++) {
-        // ignore players who do not match table id
+        // ignore players who do not match table id (or who do not exist?)
         var p = this.players[i];
-        if(p.currentTable == null || p.currentTable.id != table.id) {
+        if(p.myPeer.hasDisconnected || p.currentTable == null || p.currentTable.id != table.id) {
           continue;
         }
 
@@ -2412,7 +2544,7 @@ var SceneA = new Phaser.Class({
       // we still need to multiply this with how fast stuff warms or cools
       // (and convert milliseconds to seconds, because our heat values go from 0 to 1, not 0 to 1000)
       var heatDuration = (1.0/1000) * (1.0/25); // 25 seconds to heat something fully (from 0->1)
-      var coolDuration = (1.0/1000) * (1.0/120); // 120 seconds to cool something fully (from 1->0) (why so long? because if it drops below 7/9, it's already useless, so keep it up)
+      var coolDuration = (1.0/1000) * (1.0/150); // 150 seconds to cool something fully (from 1->0) (why so long? because if it drops below 7/9, it's already useless, so keep it up)
       if(dh > 0) {
         dh *= heatDuration;
       } else {
@@ -2434,6 +2566,13 @@ var SceneA = new Phaser.Class({
 
       // clamp between 0 and 1
       heatVal = Math.min( Math.max(0, heatVal), 1);
+
+      // if heat variation is not enabled, we can never BURN a pizza
+      // so make sure we stay below 1 and everything should be allright
+      if(!this.difficultySettings.heatVariation) {
+        isBurned = false;
+        heatVal = Math.min(heatVal, 0.98);        
+      }
 
       //
       // Check if something should happen based on new heat
@@ -2519,7 +2658,7 @@ var SceneA = new Phaser.Class({
             weHaveIt = true;
 
             // it's the right ingredient, BUT it hasn't baked long enough!
-            if(player.myIngredientParams[i] < (7/9)) {
+            if(this.difficultySettings.bakePizzas && player.myIngredientParams[i] < (7/9)) {
               weHaveUncooked = true;
               weHaveIt = false;
               continue;
@@ -2579,7 +2718,12 @@ var SceneA = new Phaser.Class({
 
       // plan the delivery ran out event
       // Time depends on complexity of the order => 20 seconds per ingredient, 30 seconds for baking
-      var deliveryTime = b.myOrderIngredientNum * 20 * 1000 + 30
+      var deliveryTime = b.myOrderIngredientNum * 20 * 1000
+
+      if(this.difficultySettings.bakePizzas) {
+        deliveryTime += 30 * 1000;
+      }
+
       this.addEventToQueue('almostFailed', deliveryTime, { 'building': b, 'id': b.myOrderID, 'statusCheck': 'waiting' });
 
       // remove exclamation mark
@@ -2589,16 +2733,6 @@ var SceneA = new Phaser.Class({
       // Also change the visual state to match (show the current wanted pizza type)
       b.myOrderSprite.setVisible(true);
       b.myOrderSprite.setFrame(b.myOrder);
-
-      // animate this sprite (just softly go up and down, repeat infinitely)
-      var tween = this.tweens.add({
-          targets: b.myOrderSprite,
-          y: { from: b.myOrderSprite.y, to: b.myOrderSprite.y - 16 },
-          ease: 'Linear',       // 'Cubic', 'Elastic', 'Bounce', 'Back'
-          duration: 1000,
-          repeat: -1,
-          yoyo: true
-      });
 
       // And hide/stop the hour glass, just in case it was busy doing stuff
       b.myHourglass.setVisible(false);
@@ -2621,11 +2755,16 @@ var SceneA = new Phaser.Class({
       b.myHourglass.setVisible(false);
       b.myHourglass.anims.stop();
 
+      b.myTween.stop();
+      b.alpha = 1.0;
+
       // then, give a money penalty
       // (higher penalty if you failed the DELIVERY, instead of failing to pick up the order)
-      var penalty = -( Math.floor(Math.random()*10)+10 );
-      if(oldStatus == 'waiting') { penalty *= 2; }
-      this.updateMoney(penalty, b, true)
+      if(this.difficultySettings.moneyPenalty) {
+        var penalty = -( Math.floor(Math.random()*10)+10 );
+        if(oldStatus == 'waiting') { penalty *= 2; }
+        this.updateMoney(penalty, b, true)
+      }
 
       // and add a "strike" to the number of failed orders
       this.strikeSprites[this.numFailedOrders].setFrame(9);
@@ -2669,6 +2808,10 @@ var SceneA = new Phaser.Class({
       // And hide/stop the hour glass, just in case it was busy doing stuff
       b.myHourglass.setVisible(false);
       b.myHourglass.anims.stop();
+
+      // stop tween, reset alpha
+      b.myTween.stop();
+      b.alpha = 1.0;
 
       // remove this order from the accumulative total
       this.curOutstandingOrders--;
@@ -2777,8 +2920,11 @@ var SceneA = new Phaser.Class({
       // Clean the screen of all players
       // Give VIP option to restart
       for(var i = 0; i < this.players.length; i++) {
+        var p = this.players[i];
+        if(p.myPeer.hasDisconnected) { continue; }
+
         var msg = { 'type': 'game-end' };
-        this.players[i].myPeer.send( JSON.stringify(msg) );
+        p.myPeer.send( JSON.stringify(msg) );
       }
 
       // Overlay game over scene
@@ -2931,13 +3077,18 @@ var SceneA = new Phaser.Class({
 
         // tables DECREASE heat
         } else {
-          this.updateHeat(t, -dt);
+          if(this.difficultySettings.heatVariation) {
+            this.updateHeat(t, -dt);
+          }
+         
         }
       }
 
       // go through all players
       for(var i = 0; i < this.players.length; i++) {
         var p = this.players[i];
+
+        if(p.myPeer.hasDisconnected) { continue; }
 
         // if we ARE in a vehicle, update the position to match the vehicle
         // (also update depth + shadow sprite of player)
@@ -2986,8 +3137,10 @@ var SceneA = new Phaser.Class({
         }
 
         // slowly cool down anything in our backpack
-        for(var b = 0; b < p.myIngredients.length; b++) {
-          this.updateHeat(p, -dt, b);
+        if(this.difficultySettings.heatVariation) {
+          for(var b = 0; b < p.myIngredients.length; b++) {
+            this.updateHeat(p, -dt, b);
+          }
         }
 
         // set text below the players 
@@ -3085,6 +3238,33 @@ var SceneA = new Phaser.Class({
     },
 
     addPlayer: function(peer) {
+      // check if this is a re-connect; if so, simply take over the player that should already be in the game
+      // loop through all players ...
+      var isReconnect = false;
+      console.log("Adding player with username " + peer.curClientUsername);
+      for(var i = 0; i < this.players.length; i++) {
+        // if username matches ...
+        var tempPeer = this.players[i].myPeer;
+        if(tempPeer.hasDisconnected) {
+          if(tempPeer.curClientUsername == peer.curClientUsername) {
+            // simply reset the reference to the new peer, and break this loop
+            peer.playerGameIndex = i;
+            this.players[i].myPeer = peer;
+            isReconnect = true;
+            break;
+          }
+        }
+      }
+
+      console.log("Player is a reconnect? " + isReconnect);
+      if(isReconnect) { 
+        status.innerHTML = 'Yay, everyone is connected again!';
+        this.scene.resume();
+        return; 
+      }
+
+      console.log("Did we reach this place?");
+
       // grab random color
       // place square randomly on stage
       var color = new Phaser.Display.Color();

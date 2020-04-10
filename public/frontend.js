@@ -895,7 +895,7 @@ var SceneA = new Phaser.Class({
        // ogg would be ideal (by far smallest size, best quality) _if it was actually well-supported_
        // BEWARE: Only MPEG-4 encoded AAC works in all browsers
        // OTHERWISE: Mp3 and m4a are both fine 
-       this.load.audio('bgTune', ['assets/bgTune.mp3']);
+       this.load.audio('bgTune', ['assets/audio/bgTune.mp3']);
     },
 
     create: function() {
@@ -903,7 +903,7 @@ var SceneA = new Phaser.Class({
 
       // add bgMusic
       var musicConfig = { 'loop': true, 'volume': 0.5 }
-      this.backgroundMusic = this.audio.add('bgTune', musicConfig);
+      this.backgroundMusic = this.sound.add('bgTune', musicConfig);
       this.backgroundMusic.play();
 
       // add room code at bottom right
@@ -1521,6 +1521,8 @@ var SceneA = new Phaser.Class({
 
       // if not a restart, initialize game in paused mode (VIP must wait for everyone to join, then start by pressing a button)
       } else {
+        this.scene.get('gameOver').setScreen(false, 'game lobby');
+
         this.scene.pause();
       }
       
@@ -1777,14 +1779,12 @@ var SceneA = new Phaser.Class({
       // now create the ACTUAL body that will function as this wall
       var wallActual = this.wallBodiesActual.create(wall.x, wall.y, null);
       wallActual.displayWidth = wall.displayWidth;
-      wallActual.displayHeight = wall.displayHeight * (1/4)
+      wallActual.displayHeight = wall.displayHeight * (1/6); // actual size = wall.displayHeight * (1/4), but I wanted more space
 
       if(d == 0 || d == 2) {
-        wallActual.displayWidth = (1/5) * wall.displayWidth;
+        wallActual.displayWidth = (1/7) * wall.displayWidth; // actual size = (1/5) * wall.displayWidth;
         wallActual.displayHeight = wall.displayHeight;
-        //wallActual.y = wall.y - (0.5 - (1/8))*this.tileHeight;
       } else {
-
         // what's this? well, side walls (vertical) do not have an overlap body
         // so ONLY refresh the (original overlap) body if d != 0 and d != 2
         wall.refreshBody();
@@ -1797,8 +1797,8 @@ var SceneA = new Phaser.Class({
 
       if(d == 0 || d == 2) {
         var secondWallActual = this.wallBodiesActual.create(secondWall.x, secondWall.y, null)
-        secondWallActual.displayWidth = (1/5) * wall.displayWidth;
-        secondWallActual.displayHeight = (1/4)*wall.displayHeight;
+        secondWallActual.displayWidth = (1/7)*wall.displayWidth; // actual size = (1/5)*wall.displayWidth;
+        secondWallActual.displayHeight = (1/6)*wall.displayHeight; // actual size = (1/4)*wall.displayHeight;
         secondWallActual.setOrigin(0.5, 1);
         secondWallActual.refreshBody();
         secondWallActual.setVisible(false);
@@ -1812,7 +1812,7 @@ var SceneA = new Phaser.Class({
       // create the table body with right size and all
       var table = this.tableBodies.create(x * this.tileWidth, y * this.tileHeight, 'buildings');
 
-      // determine table type (regular or oven) => random for now (TO DO?)
+      // determine table type (regular or oven)
       // frames: 28 = regular table, 29 = oven
       var tableType = 'regular';
       table.setFrame(28);
@@ -2370,9 +2370,17 @@ var SceneA = new Phaser.Class({
       // grab the actual player sprite, as "player" is the BODY (different things)
       player = player.myPlayer;
 
-      // if this player is already using this table, ignore the rest of this
+      // if this player is already using THIS SPECIFIC table, ignore the rest of this
       if(player.currentTable != null) {
-        return;
+        if(player.currentTable.id == table.id) {
+          return;
+        } else {
+          // reset table sprite from previous table, because we switched!
+          player.currentTable.setFrame(28);
+          if(player.currentTable.myType == 'oven') {
+            player.currentTable.setFrame(29);
+          }
+        }
       }
 
       // if we just entered the collision, register the table and send a message
@@ -3329,7 +3337,9 @@ var SceneA = new Phaser.Class({
             p.currentTable.setFrame(31);
           }
           
-          if(!this.checkOverlap(p, p.currentTable)) {
+          var dist = (p.x - p.currentTable.x)*(p.x - p.currentTable.x) + (p.y - p.currentTable.y)*(p.y - p.currentTable.y);
+
+          if(!this.checkOverlap(p, p.currentTable) && dist > (this.tileWidth*this.tileWidth)) {
             // reset table sprite
             p.currentTable.setFrame(28);
             if(tp == 'oven') {
@@ -3710,13 +3720,18 @@ var GameOver = new Phaser.Class({
       this.mainText = mainText;
       this.bodyText = bodyText;
 
-      // start with the lobby screen
-      this.setScreen(false, 'game lobby');
+      // start with the loading screen
+      this.setScreen(false, 'loading');
     },
 
     setScreen: function(win, reason) {
-      // special case: game lobby
-      if(reason == 'game lobby') {
+      // special cases: loading and game lobby
+      if(reason == 'loading') {
+        this.mainText.text = 'LOADING ... ';
+        this.bodyText.text = 'This should take at most 5-10 seconds.\n\n\n If it takes longer, something went wrong and you must reload the page. Sorry, internet is unpredictable :(';
+        return;
+
+      } else if(reason == 'game lobby') {
         this.mainText.text = 'JOIN NOW!';
         this.bodyText.text = 'Enter the room code (bottom right) and a username to join.\n\n\n Once everyone\'s in, the VIP (first player to connect) has a button to start the game!';
         return;

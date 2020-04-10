@@ -1,6 +1,6 @@
 {
-  "name": "peers-in-the-post-office",
-  "version": "0.1.0",
+  "name": "pizza-peers",
+  "version": "1.0.0",
   "description": "Local multiplayer games with phones as controllers",
   "main": "index.js",
   "scripts": {

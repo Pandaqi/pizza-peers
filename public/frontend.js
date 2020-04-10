@@ -199,7 +199,7 @@ function initializeNetwork() {
     var peer = new SimplePeer({
       initiator: initiator,
       trickle: false,
-      config: { iceServers: [{ urls: 'stun:stunserver.org:3478' }, { urls: "turn:numb.viagenie.ca:3478", credential:"HupseFlups2", username:"cyttildalionzo@gmail.com" }] },
+      config: { iceServers: [{ urls: 'stun:stunserver.org:3478' }, { urls: "turn:numb.viagenie.ca:3478", credential:"12345678", username:"askthepanda@pandaqi.com" }] },
     })
 
     // add peer to peers list
@@ -208,9 +208,16 @@ function initializeNetwork() {
     // remember we're not connected yet
     peer.isConnected = false;
     peer.hasDisconnected = false;
+    peer.gameOver = false;
     
+    // this error handling is mostly for the "ICE server/connection failed" error
+    // it happens sometimes, and I cannot figure out why, but it's probably just because of some oddities in my network (or temporary problems at the STUN/TURN servers)
+    // however, I do not know how to catch that specific event: https://stackoverflow.com/questions/47086373/simple-peer-webrtc-error-ice-connection-failed
+    // so I just display a general error message on every type of error with possible fixes
     peer.on('error', function(err) {
-      console.log('error', err)
+      console.log('error', err);
+
+      updateStatus('<p>Error! Something went wrong with the connection.</p><p>Possible fixes: simply restart and retry, make sure everyone is on the same Wi-Fi network, open the game in an Incognito window, or check if your browser supports WebRTC.</p>')
     })
 
     peer.on('close', function() {
@@ -288,7 +295,7 @@ function initializeNetwork() {
 
       // the first mobile phone to connect, receives this lobby event
       // it creates a button that, once clicked, actually starts the game
-      if(data.type == 'lobby') {
+      if(data.type == 'lobby' && data.ind == 0) {
         // remember we're vip
         peer.isVIP = true;
 
@@ -339,9 +346,17 @@ function initializeNetwork() {
         gm.startGame();
       }
 
+      // the COMPUTER receives this event
       if(data.type == 'restart-game') {
         gm.difficulty = data.difficulty;
         gm.restartGame();
+      }
+
+      // the PLAYER receives this event 
+      if(data.type == 'game-restart') {
+        document.getElementById('dynamicInterface').innerHTML = 'Game restarted, have fun!';
+
+        peer.gameOver = false;
       }
 
       if(data.type == 'game-end') {
@@ -349,6 +364,10 @@ function initializeNetwork() {
         updateStatus('');
         document.getElementById('vehicleInterface').innerHTML = '';
         document.getElementById('allergyInterface').innerHTML = '';
+
+        // remember we're in the "gameOver" state
+        // why? so we can ignore any messages that come in after us
+        peer.gameOver = true;
 
         var dynInt = document.getElementById('dynamicInterface');
         dynInt.innerHTML = '<p style="text-align:center;">GAME OVER!</p>';
@@ -393,7 +412,7 @@ function initializeNetwork() {
         // (Alternatively, when you close the computer screen, automatically send one final signal to the server that it should remove the game)
       }
 
-      if(peer.isConnected) {
+      if(peer.isConnected && !peer.gameOver) {
         var dynInt = document.getElementById('dynamicInterface');
 
         // player has received its ALLERGIES
@@ -801,6 +820,41 @@ function initializeNetwork() {
 // call the function that initializes the WebSockets + Peer-to-Peer stuff
 initializeNetwork();
 
+class AnimatedParticle extends Phaser.GameObjects.Particles.Particle
+{
+    constructor (emitter)
+    {
+        super(emitter);
+
+        this.t = 0;
+        this.i = 0;
+    }
+
+    update (delta, step, processors)
+    {
+        var result = super.update(delta, step, processors);
+
+        this.t += delta;
+
+        if (this.t >= anim.msPerFrame)
+        {
+            this.i++;
+
+            if (this.i > 10)
+            {
+                this.i = 0;
+            }
+
+            var coinAnim = GAME.scene.keys.sceneA.coinAnim;
+            this.frame = coinAnim.frames[this.i].frame;
+
+            this.t -= coinAnim.msPerFrame;
+        }
+
+        return result;
+    }
+}
+
 // STUFF (devlog) about scenes: https://phaser.io/phaser3/devlog/121
 var SceneA = new Phaser.Class({
 
@@ -837,9 +891,20 @@ var SceneA = new Phaser.Class({
 
        this.load.spritesheet('vehicles', 'assets/vehicles.png', { frameWidth: 16, frameHeight: 16 });
 
+       // audio
+       // ogg would be ideal (by far smallest size, best quality) _if it was actually well-supported_
+       // BEWARE: Only MPEG-4 encoded AAC works in all browsers
+       // OTHERWISE: Mp3 and m4a are both fine 
+       this.load.audio('bgTune', ['assets/bgTune.mp3']);
     },
 
     create: function() {
+      this.gameStarted = false;
+
+      // add bgMusic
+      var musicConfig = { 'loop': true, 'volume': 0.5 }
+      this.backgroundMusic = this.audio.add('bgTune', musicConfig);
+      this.backgroundMusic.play();
 
       // add room code at bottom right
       var roomText = this.add.text(this.canvas.width - 10, this.canvas.height - 10, connection.room);
@@ -907,20 +972,33 @@ var SceneA = new Phaser.Class({
       //
       // preload animations
       //
-      // TO DO: Create proper idle animation (now it's just static)
       this.anims.create({
-        key: 'idle',
-        frames: this.anims.generateFrameNumbers('dude', { start: 0, end: 0 }),
+        key: 'idle0',
+        frames: this.anims.generateFrameNumbers('dude', { frames:[0,3] }),
         frameRate: 10,
         repeat: -1
       })
 
       this.anims.create({
-            key: 'run',
-            frames: this.anims.generateFrameNumbers('dude', { start: 0, end: 2 }),
-            frameRate: 10,
-            repeat: -1
-        });
+        key: 'run0',
+        frames: this.anims.generateFrameNumbers('dude', { start: 0, end: 2 }),
+        frameRate: 10,
+        repeat: -1
+      });
+
+      this.anims.create({
+        key: 'idle1',
+        frames: this.anims.generateFrameNumbers('dude', { frames: [4,7] }),
+        frameRate: 10,
+        repeat: -1
+      })
+
+      this.anims.create({
+        key: 'run1',
+        frames: this.anims.generateFrameNumbers('dude', { start: 4, end: 6 }),
+        frameRate: 10,
+        repeat: -1
+      });
 
       this.anims.create({
             key: 'orderJump',
@@ -929,7 +1007,7 @@ var SceneA = new Phaser.Class({
             repeat: -1
         });
 
-      this.anims.create({
+      this.coinAnim = this.anims.create({
             key: 'moneyRotate',
             frames: this.anims.generateFrameNumbers('moneyAnim', { start: 0, end: 5 }),
             frameRate: 10,
@@ -963,6 +1041,10 @@ var SceneA = new Phaser.Class({
         frameRate: 10,
         repeat: -1
       });
+
+      //
+      // preload particles
+      //
 
       // 
       // initialize texture that will hold all shadows
@@ -1104,6 +1186,9 @@ var SceneA = new Phaser.Class({
         // create building
         var b = this.createBuilding(x, y, rotation, type);
         b.myStatus = 'disabled';
+
+        // attach building to area
+        ing.myBuilding = b;
 
         // add rotating money/market sign
         // also make it go up and down
@@ -1894,6 +1979,10 @@ var SceneA = new Phaser.Class({
       // send game over scene to the back 
       GAME.scene.keys.gameOver.scene.sleep();
 
+      // reset restarting variable
+      this.beingRestarted = false;
+      this.gameStarted = true;
+
       // resume the game state
       this.scene.resume();
     },
@@ -1940,6 +2029,15 @@ var SceneA = new Phaser.Class({
       var offsetX = 5, offsetY = 0;
       this.shadowGraphics.fillRect(building.x - 0.5*building.displayWidth - offsetX, building.y - actualBody.displayHeight + offsetY, building.displayWidth, actualBody.displayHeight);
 
+      // also create the HIGHLIGHT sprite on top of the building
+      var highlight = this.add.sprite(building.x, building.y, 'buildings');
+      highlight.setOrigin(0.5, 1);
+      highlight.setScale(4,4);
+      highlight.setFrame(44);
+      highlight.setVisible(false);
+      highlight.depth = building.depth + 0.025;
+
+      building.highlight = highlight;
 
       return building;
     },
@@ -1997,7 +2095,7 @@ var SceneA = new Phaser.Class({
         // otherwise, keep track of the currently outstanding orders (which is both ORDERING and WAITING)
         // NOTE: randomly, the maximum number of orders might increase to be ONE more than the player count (for extra challenge!)
         var maxOrders = this.players.length;
-        maxOrders += Math.floor(Math.random());
+        maxOrders += Math.round(Math.random());
 
         if(this.curOutstandingOrders >= maxOrders) {
           return;
@@ -2997,6 +3095,41 @@ var SceneA = new Phaser.Class({
       this.money += dm;
       this.moneyText.text = this.money;
 
+      if(dm > 0 && initiator != null) {
+        var coinParticles = this.add.particles('money');
+        coinParticles.depth = initiator.depth;
+
+        //
+        // SO, ABOUT PARTICLES: why does every game engine have a shit particle system explanation?
+        // Took me a while to find out how stuff worked from the Phaser Notes page (the docs and any tutorials were not helpful at all): https://rexrainbow.github.io/phaser3-rex-notes/docs/site/particles/
+        //
+        // 1) Exploding particles need frequency -1
+        // 2) To actually make it explode, you need to call that function: emitter.explode(count, x, y)
+        // 3) If you have a single image, do NOT use the frame property (it will crash, as there are no frames) and don't use a separate particleClass
+        // 4) You must destroy the PARTICLES object, emitters can't be destroyed or anything => also, you must destroy it yourselves with a delayed call
+        // 5) Also, you must set DEPTH on the particles object as well, you can't set it on an emitter
+
+        // create emitter that sprays animated coins (in an exploding manner)
+        var emitter = coinParticles.createEmitter({
+            frequency: -1, // this turns it into an explode emitter
+            quantity: dm,
+            speedX: { min: -100, max: 100 },
+            speedY: { min: -200, max: -100 },
+            alpha: { start: 1.0, end: 0.0 },
+            gravityY: 200,
+            scale: { min: 2, max: 4 },
+            lifespan: { min: 500, max: 1500 },
+            //particleClass: AnimatedParticle,
+        });
+
+        emitter.explode(dm, initiator.x, initiator.y);
+
+        // destroy emitter automatically after some time
+        this.time.delayedCall(2000, function() {
+          coinParticles.destroy();
+        });
+      }
+
       return true;
     },
 
@@ -3132,6 +3265,10 @@ var SceneA = new Phaser.Class({
         p.shadowSprite.x = p.x;
         p.shadowSprite.y = p.y;
 
+        // match particle position
+        p.dustParticles.depth = p.y - 0.025;
+        p.particleEmitter.setPosition(p.x, p.y);
+
         // update their Z value for depth sorting
         // (we have a very simple Y-sort in this game)
         p.depth = p.y;
@@ -3166,7 +3303,11 @@ var SceneA = new Phaser.Class({
 
         // check if we've STOPPED overlapping our ingredient location
         if(p.currentIngLocation != null) {
+          p.currentIngLocation.myBuilding.highlight.setVisible(true);
+          
           if(!this.checkOverlap(p, p.currentIngLocation)) {
+            p.currentIngLocation.myBuilding.highlight.setVisible(false);
+
             // if so, reset our variables
             p.currentIngLocation = null;
             p.currentIngredient = null;
@@ -3206,7 +3347,11 @@ var SceneA = new Phaser.Class({
 
         // check if we've STOPPED overlapping an area
         if(p.currentArea != null) {
+          p.currentArea.myBuilding.highlight.setVisible(true);
+
           if(!this.checkOverlap(p, p.currentArea)) {
+            p.currentArea.myBuilding.highlight.setVisible(false);
+
             // if so, reset variables (both on player and area)
             p.currentArea.beingUsed = false;
             p.currentArea = null;
@@ -3258,6 +3403,7 @@ var SceneA = new Phaser.Class({
       // check if this is a re-connect; if so, simply take over the player that should already be in the game
       // loop through all players ...
       var isReconnect = false;
+      var curIndex = this.players.length;
       console.log("Adding player with username " + peer.curClientUsername);
       for(var i = 0; i < this.players.length; i++) {
         // if username matches ...
@@ -3266,6 +3412,7 @@ var SceneA = new Phaser.Class({
           if(tempPeer.curClientUsername == peer.curClientUsername) {
             // simply reset the reference to the new peer, and break this loop
             peer.playerGameIndex = i;
+            curIndex = i;
             this.players[i].myPeer = peer;
             isReconnect = true;
             break;
@@ -3273,14 +3420,24 @@ var SceneA = new Phaser.Class({
         }
       }
 
-      console.log("Player is a reconnect? " + isReconnect);
+      // send player its player index in the lobby
+      // if it's 0, the smartphone will automatically set itself to be VIP
+      if(!this.gameStarted && !this.beingRestarted) {
+        var msg = { 'type': 'lobby', 'ind': curIndex };
+        peer.send( JSON.stringify(msg) );
+
+      // if the game is being restarted instead, send each player a call to restart their interface
+      } else if(this.beingRestarted) {
+        var msg = { 'type': 'game-restart' };
+        peer.send( JSON.stringify(msg) );
+      }
+
+      // If it was a reconnect, give a nice feedback message and resume the game
       if(isReconnect) { 
         status.innerHTML = 'Yay, everyone is connected again!';
         this.scene.resume();
         return; 
       }
-
-      console.log("Did we reach this place?");
 
       // grab random color
       // place square randomly on stage
@@ -3305,6 +3462,10 @@ var SceneA = new Phaser.Class({
 
       newPlayer.setScale(scaleFactor);
       newPlayer.setOrigin(0.5, 1.0);
+
+      // determine random player character (currently, there are only two: 0 (a wizardy dude) and 1 (a chef woman))
+      newPlayer.myCharacter = Math.round(Math.random());
+      newPlayer.setFrame(newPlayer.myCharacter*4);
 
       // create the actual BODY of the player
       var actualBody = this.playerBodiesActual.create(randX, randY, null);
@@ -3408,15 +3569,22 @@ var SceneA = new Phaser.Class({
       text.setOrigin(0.5);
       newPlayer.usernameText = text;
 
-      // send player its player index, if it's the first player
-      // TO DO: Perhaps change this to send player number to ALL players, then just listen (smartphone side) to see if it's 0
-      if(!this.beingRestarted) {
-        var playerIndex = (this.players.length - 1)
-        if(playerIndex == 0) {
-          var msg = { 'type': 'lobby', 'ind': playerIndex };
-          peer.send( JSON.stringify(msg) );
-        }
-      }
+      //
+      // create particles (dust clouds when running)
+      //
+      var dustParticles = this.add.particles('staticAssets');
+      newPlayer.dustParticles = dustParticles;
+
+      var emitter = dustParticles.createEmitter({
+          frame: 3,
+          frequency: 200,
+          quantity: 1,
+          alpha: { start: 0.2, end: 0 },
+          scale: { start: 4, end: 0 },
+          lifespan: { min: 500, max: 1000 },
+          //particleClass: AnimatedParticle,
+      });
+      newPlayer.particleEmitter = emitter;
     },
 
     updatePlayer: function(peer, vec) {
@@ -3440,12 +3608,23 @@ var SceneA = new Phaser.Class({
         // move twice as fast!
         speed *= 2;
       } else {
+        animNames[0] += objToMove.myCharacter;
+        animNamesIdle[0] += objToMove.myCharacter;
+
         objToMove = objToMove.actualBody;
+      }
+
+      if(vec[0] == 0 && vec[1] == 0) {
+        this.players[peer.playerGameIndex].particleEmitter.setVisible(false)
+      } else {
+        this.players[peer.playerGameIndex].particleEmitter.setVisible(true);
       }
 
       // just move the player according to velocity vector
       // var curVel = player.velocity
       objToMove.setVelocity(vec[0] * speed, vec[1] * speed);
+
+      
 
       // animate all things that need animating
       // (only the player, or player + vehicle, stuff like that)

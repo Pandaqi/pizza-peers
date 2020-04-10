@@ -232,6 +232,7 @@ function initializeNetwork() {
 
         // pause the game
         var gm = GAME.scene.keys.sceneA;
+        gm.backgroundMusic.pause();
         gm.scene.pause();
       }
     })
@@ -896,12 +897,19 @@ var SceneA = new Phaser.Class({
        // BEWARE: Only MPEG-4 encoded AAC works in all browsers
        // OTHERWISE: Mp3 and m4a are both fine 
        this.load.audio('bgTune', ['assets/audio/bgTune.mp3']);
+
+       this.load.audio('game_win', ['assets/audio/game_win.mp3']);
+       this.load.audio('game_loss', ['assets/audio/game_loss.mp3']);
+       this.load.audio('fail', ['assets/audio/fail.mp3']);
+       this.load.audio('coin', ['assets/audio/coin.mp3']);
     },
 
     create: function() {
       this.gameStarted = false;
 
       // add bgMusic
+      this.sound.pauseOnBlur = false;
+
       var musicConfig = { 'loop': true, 'volume': 0.5 }
       this.backgroundMusic = this.sound.add('bgTune', musicConfig);
       this.backgroundMusic.play();
@@ -1523,6 +1531,7 @@ var SceneA = new Phaser.Class({
       } else {
         this.scene.get('gameOver').setScreen(false, 'game lobby');
 
+        this.backgroundMusic.pause();
         this.scene.pause();
       }
       
@@ -1984,6 +1993,7 @@ var SceneA = new Phaser.Class({
       this.gameStarted = true;
 
       // resume the game state
+      this.backgroundMusic.resume();
       this.scene.resume();
     },
 
@@ -2893,6 +2903,9 @@ var SceneA = new Phaser.Class({
       this.strikeSprites[this.numFailedOrders].setFrame(9);
       this.numFailedOrders++;
 
+      // play failing sound
+      this.sound.play('fail');
+
       // if we've failed too many times, go to game over - we lost
       if(this.numFailedOrders >= this.maxAllowedFails) {
         this.gameOver(false, 'too many strikes');
@@ -3038,7 +3051,14 @@ var SceneA = new Phaser.Class({
     },
 
     gameOver: function(win, reason) {
+      this.backgroundMusic.stop();
       this.scene.pause();
+
+      if(win) {
+        this.sound.play('game_win');
+      } else {
+        this.sound.play('game_loss');
+      }
 
       // Clean the screen of all players
       // Give VIP option to restart
@@ -3131,6 +3151,9 @@ var SceneA = new Phaser.Class({
         });
 
         emitter.explode(dm, initiator.x, initiator.y);
+
+        // also play sound effect!
+        this.sound.play('coin');
 
         // destroy emitter automatically after some time
         this.time.delayedCall(2000, function() {
@@ -3445,6 +3468,7 @@ var SceneA = new Phaser.Class({
       // If it was a reconnect, give a nice feedback message and resume the game
       if(isReconnect) { 
         status.innerHTML = 'Yay, everyone is connected again!';
+        this.backgroundMusic.resume();
         this.scene.resume();
         return; 
       }

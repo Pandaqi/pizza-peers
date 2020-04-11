@@ -1,4 +1,4 @@
-process.title = 'peer-to-peer';
+process.title = 'pizza-peers';
 var webSocketsServerPort = process.env.PORT || 8888;
 
 var WebSocketServer = require('websocket').server;

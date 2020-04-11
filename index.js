@@ -4,18 +4,6 @@ var webSocketsServerPort = process.env.PORT || 8888;
 var WebSocketServer = require('websocket').server;
 var http = require('http');
 
-/*
-var server = http.createServer(function(request, response) {
-  // process HTTP request. Since we're writing just WebSockets
-  // server we don't have to implement anything.
-});
-
-server.listen(webSocketsServerPort, function() {
-  console.log((new Date()) + " Server is listening on port "
-      + webSocketsServerPort);
-});
-*/
-
 // stuff for creating an app that is a WEBSOCKET and also serves STATIC FILES
 var WebSocketServer = require('websocket').server;
 var express         = require('express');
@@ -26,8 +14,6 @@ var server          = app.listen(webSocketsServerPort, function() {
 
 // create the web socket server (using the HTTP server as a basis)
 var wsServer        = new WebSocketServer({ httpServer : server });
-
-
 
 // this will make Express serve your static files (from the folder /public)
 app.use(express.static(__dirname + '/public'));
@@ -44,8 +30,7 @@ wsServer.on('request', function(request) {
 	var roomID = -1;
 	var isServer = false;
 
-	// This is the most important callback for us, we'll handle
-	// all messages from users here.
+	// The most important callback: we'll handle all messages from users here.
 	connection.on('message', function(message) {
 		// a message is always a JSON object
 		//  => type = 'utf8'
@@ -87,6 +72,12 @@ wsServer.on('request', function(request) {
 			// what is the player username?
 			var usn = message.username
 
+			// if the username is too long, truncate it
+			// (just in case some lunatic tries to crash the server)
+			if(usn.length >= 20) {
+				usn = usn.substring(0,20);
+			} 
+
 			// check if room exists; if not, return error message to player
 			if(rooms[roomToJoin] == undefined || rooms[roomToJoin] == null) {
 				// console.log("Error: someone tried to join nonexistent room (" + roomToJoin + ")");
@@ -94,7 +85,6 @@ wsServer.on('request', function(request) {
 				connection.sendUTF( JSON.stringify(msg) );
 				return;
 			}
-
 
 			// if the game has already started, this can only be a RECONNECT
 			// thus, check if the username already exists; if not, return and do nothing
@@ -151,17 +141,10 @@ wsServer.on('request', function(request) {
 		} else if(message.action == 'startGame') {
 			rooms[roomID].gameStarted = true;
 		}
-
-		/*
-		if (message.type === 'utf8') {
-		  // process WebSocket message
-		}
-		*/
 	});
 
+	// user connection closed
 	connection.on('close', function(connection) {
-		// close user connection
-
 		// if we were the server of a game, remove that whole game
 		if(isServer) {
 			delete rooms[roomID];

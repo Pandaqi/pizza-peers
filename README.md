@@ -23,6 +23,6 @@ This game uses WebSockets and Peer-to-Peer technology to establish a direct conn
 
 As long as you're on the same Wi-Fi network (or relatively close in distance), this means input is applied instantly and it feels like you're playing with an actual gamepad. These days, almost everyone has a smartphone with a browser, which means everyone can join and play these kinds of games within a matter of seconds.
 
-I've written an in-depth article series about the creation of this game: [How I created "Pizza Peers"](http://pandaqi.com/blog) <TO DO: Add the actual link>
+I've written an in-depth article series about the creation of this game: [How I created "Pizza Peers"](http://pandaqi.com/blog/how-i-created-pizza-peers)
 
 Questions? Feedback? Used my framework for your own game? Just let me know :)

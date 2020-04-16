@@ -2362,10 +2362,18 @@ export const MainGame = new Phaser.Class({
 
       // update visual representation
       for(var i = 0; i < player.backpackSize; i++) {
+        // get all current tweens on this sprite, stop them!
+        // (otherwise, if a player is really fast, they overwrite tweens on ingredients and cause visual mayhem)
+        var curTweens = this.tweens.getTweensOf(player.backpackSprites[i]);
+        for(var t = 0; t < curTweens.length; t++) {
+          curTweens[t].stop();
+        }
+
         // if something is here, show it (and set to right frame)
         if(i < player.myIngredients.length) {
           var heatVal = player.myIngredientParams[i];
 
+          player.backpackSprites[i].setScale(4,4);
           player.backpackSprites[i].setVisible(true);
           player.backpackSprites[i].setFrame(player.myIngredients[i]);
 

@@ -67,7 +67,7 @@ function initializeNetwork() {
     // if it's a confirmation of the created game (room) ...
     if(message.type == 'confirmRoom') {
       // display confirmation
-      updateStatus('Game created!');
+      updateStatus('Game created! Now loading the game ...');
 
       // save room code on connection
       connection.room = message.room

@@ -25,4 +25,10 @@ As long as you're on the same Wi-Fi network (or relatively close in distance), t
 
 I've written an in-depth article series about the creation of this game: [How I created "Pizza Peers"](http://pandaqi.com/blog/how-i-created-pizza-peers)
 
+## License
+This project is licensed under the very permissive CC BY-SA (Creative Commons Attribution ShareAlike).
+
+You are free to use any part of this project (code, assets, sound, et cetera), as long as you credit me (and perhaps mention "The Peerful Project"), and publish your own project under this same license.
+
+## Bugs & Feedback
 Questions? Feedback? Used my framework for your own game? Just let me know :)

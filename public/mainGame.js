@@ -661,6 +661,11 @@ export const MainGame = new Phaser.Class({
       this.updateMoney(0, null);
 
       //
+      // listen to keypresses
+      //
+      this.input.keyboard.on('keydown_R', this.restartPressed, this);
+
+      //
       // finally, determine what to do, depending on if it's a restart or not
       //
       if(this.beingRestarted) {
@@ -682,6 +687,10 @@ export const MainGame = new Phaser.Class({
         this.scene.pause();
       }
       
+    },
+
+    restartPressed: function() {
+      peerComputer(null, null, { 'type': 'restart-game', 'difficulty': this.difficulty })
     },
 
     createWorkspace() {
@@ -1697,6 +1706,11 @@ export const MainGame = new Phaser.Class({
       // (otherwise you get a lot of situations where you just can not possibly deliver something)
       if(this.players.length <= 3 && numElementsInIngredient > 1) {
         isAllergic = false;
+
+      // similarly, on high player counts, you can't be allergic to a FULL pizza
+      // (otherwise those could never be made or delivered)
+      } else if(this.players.length > 3 && numElementsInIngredient == 5) {
+      	isAllergic = false;
       }
 
       // if all checks fail, we are NOT allergic
@@ -2611,7 +2625,20 @@ export const MainGame = new Phaser.Class({
             }
           }
         }
+
+        // check if we're out of bounds
+        // (can happen if someone pushes us REALLY hard)
+        // reset to random position
+        if(this.outOfBounds(p.actualBody.x, p.actualBody.y)) {
+            p.actualBody.x = Math.random() * this.mapWidth * this.tileWidth;
+            p.actualBody.y = Math.random() * this.mapHeight * this.tileHeight;
+        }
       }
+    },
+
+    outOfBounds: function(x, y) {
+      var margin = 50
+      return (x < -margin || x > (this.mapWidth*this.tileWidth+margin) || y < -margin || y > (this.mapHeight*this.tileHeight+margin))
     },
 
     checkOverlap: function(spriteA, spriteB) {

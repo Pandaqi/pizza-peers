@@ -81,6 +81,6 @@ export const GameOver = new Phaser.Class({
         this.bodyText.text = 'You are the best pizza peers, probably, presumably, practically!';
       }
 
-      this.bodyText.text += '\n\n\nWant to play again? The VIP has a button to restart.'
+      this.bodyText.text += '\n\n\nWant to play again? Press the R key. The VIP also has a button to restart.'
     }
 });

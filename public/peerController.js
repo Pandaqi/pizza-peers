@@ -24,44 +24,47 @@ export function peerController(peer, connection, data) {
 
 	    // finally, set the div to the string we just
 	    allergyDiv.innerHTML = tempString;
+
+      return;
+    }
+
+    // player is at an INGREDIENT location (for the first time; overlapEnter)
+  	if(data.type == 'ing') {
+  	    dynInt.innerHTML = '<p>You are at an ingredient store.</p>';
+
+  	    // convert ingredient to atomic type (one of the five basic ingredients)
+  	    // (this is needed for styling the button with the right coloring)
+  	    var ingredients = ['Dough', 'Tomato', 'Cheese', 'Spice', 'Champignon']
+  	    var atomicType = Math.log2(data.ing);
+
+  	    // create the button
+  	    var button = document.createElement("button");
+  	    button.classList.add('buyButton');
+  	    button.classList.add("single" + ingredients[atomicType]);
+  	    button.innerHTML = "<span>Buy</span><div class='ingSprite' style='background-position:-" + (data.ing*32) + "px 0;'></div><span>for " + data.price + "</span><div class='ingMoney'></div>";
+
+  	    // append to dynamic interface
+  	    dynInt.appendChild(button);
+
+  	    // add event handler
+  	    // when we click this button ...
+  	    button.addEventListener ("click", function() {
+  	      // we buy the ingredient for that price!
+  	      // (the computer should remember the offer it made)
+  	      var msg = { 'type':'buy' }
+  	      peer.send( JSON.stringify(msg) );
+  	    });
+
+      return;
   	}
 
-  	// player is at an INGREDIENT location (for the first time; overlapEnter)
-	if(data.type == 'ing') {
-	    dynInt.innerHTML = '<p>You are at an ingredient store.</p>';
+  	// player has moved away from an INGREDIENT location (overlapExit)
+  	if(data.type == 'ing-end') {
+  		dynInt.innerHTML = '';
+      return;
+  	}
 
-	    // convert ingredient to atomic type (one of the five basic ingredients)
-	    // (this is needed for styling the button with the right coloring)
-	    var ingredients = ['Dough', 'Tomato', 'Cheese', 'Spice', 'Champignon']
-	    var atomicType = Math.log2(data.ing);
-
-	    // create the button
-	    var button = document.createElement("button");
-	    button.classList.add('buyButton');
-	    button.classList.add("single" + ingredients[atomicType]);
-	    button.innerHTML = "<span>Buy</span><div class='ingSprite' style='background-position:-" + (data.ing*32) + "px 0;'></div><span>for " + data.price + "</span><div class='ingMoney'></div>";
-
-	    // append to dynamic interface
-	    dynInt.appendChild(button);
-
-	    // add event handler
-	    // when we click this button ...
-	    button.addEventListener ("click", function() {
-	      // we buy the ingredient for that price!
-	      // (the computer should remember the offer it made)
-	      var msg = { 'type':'buy' }
-	      peer.send( JSON.stringify(msg) );
-	    });
-	}
-
-	// player has moved away from an INGREDIENT location (overlapExit)
-	if(data.type == 'ing-end') {
-		dynInt.innerHTML = '';
-	}
-
-
-
-	// player is at a TABLE location
+	  // player is at a TABLE location
     if(data.type == 'table') {
         var informMessage = '<p>You are at a table.</p>';
         if(data.isOven) {
@@ -144,16 +147,17 @@ export function peerController(peer, connection, data) {
             dynInt.innerHTML = '';
           });
         } 
+
+        return;
     }
 
     // stop standing near table
-	if(data.type == 'table-end') {
-		dynInt.innerHTML = '';
-	}
+  	if(data.type == 'table-end') {
+  		dynInt.innerHTML = '';
+      return;
+  	}
 
-
-
-	// player is at an ORDER area
+	  // player is at an ORDER area
     if(data.type == 'area') {
         dynInt.innerHTML = 'You rang the doorbell.';
 
@@ -189,14 +193,15 @@ export function peerController(peer, connection, data) {
             dynInt.innerHTML = '';
           });
         }
+
+      return;
     }
 
     // player LEFT an order area
     if(data.type == 'area-end') {
         dynInt.innerHTML = '';
+        return;
     }
-
-
 
     // player is AT a vehicle
     if(data.type == 'vehicle') {
@@ -217,35 +222,41 @@ export function peerController(peer, connection, data) {
 
           vehicleInt.innerHTML = '';
         }); 
-      }
 
-      // player receives a button so he can leave the vehicle at any time
-      // NOTE: It's important that the player keeps overlapping the vehicle while on it, otherwise it triggers the end message
-      //       (I would like to turn off the overlapping body, but that is needed for obstruction tests and all ...)
-      if(data.type == 'vehicle-active') {
-        var vehicleInt = document.getElementById('vehicleInterface');
-        vehicleInt.style.display = 'block';
+      return;
+    }
 
-        // display button for leaving the vehicle
-        var btn = document.createElement("button");
-        btn.classList.add('buyButton');
-        btn.classList.add('vehicleButton');
-        btn.innerHTML = "<span>Leave vehicle</span>";
-        vehicleInt.appendChild(btn);
-        
-        // send message to computer that we want to leave the vehicle
-        btn.addEventListener ("click", function() {
-          var msg = { 'type': 'leave-vehicle' };
-          peer.send( JSON.stringify(msg) );
+    // player receives a button so he can leave the vehicle at any time
+    // NOTE: It's important that the player keeps overlapping the vehicle while on it, otherwise it triggers the end message
+    //       (I would like to turn off the overlapping body, but that is needed for obstruction tests and all ...)
+    if(data.type == 'vehicle-active') {
+      var vehicleInt = document.getElementById('vehicleInterface');
+      vehicleInt.style.display = 'block';
 
-          vehicleInt.innerHTML = '';
-        }); 
-      }
+      // display button for leaving the vehicle
+      var btn = document.createElement("button");
+      btn.classList.add('buyButton');
+      btn.classList.add('vehicleButton');
+      btn.innerHTML = "<span>Leave vehicle</span>";
+      vehicleInt.appendChild(btn);
+      
+      // send message to computer that we want to leave the vehicle
+      btn.addEventListener ("click", function() {
+        var msg = { 'type': 'leave-vehicle' };
+        peer.send( JSON.stringify(msg) );
+
+        vehicleInt.innerHTML = '';
+      }); 
+
+      return;
+    }
 
     // if player stopped OVERLAPPING vehicle (but isn't in it/exiting)
     if(data.type == 'vehicle-end') {
         var vehicleInt = document.getElementById('vehicleInterface');
         vehicleInt.style.display = 'none';
         vehicleInt.innerHTML = '';
+
+        return;
     }
 }

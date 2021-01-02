@@ -1,3 +1,5 @@
+import { updateStatus } from './updateStatus.js';
+
 function createDifficultyForm() {
 	return '\
 	  <label for="difficultyForm">Difficulty: </label>\

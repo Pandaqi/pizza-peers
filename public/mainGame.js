@@ -1,3 +1,5 @@
+import { peerComputer } from './peerComputer.js';
+
 export const MainGame = new Phaser.Class({
 
     Extends: Phaser.Scene,
@@ -210,8 +212,8 @@ export const MainGame = new Phaser.Class({
       //
       // generate random city
       //
-      this.tileWidth = 32;
-      this.tileHeight = 32;
+      this.tileWidth = 48;
+      this.tileHeight = 48;
       this.gameWidth = this.canvas.width;
       this.gameHeight = this.canvas.height;
 
@@ -516,7 +518,7 @@ export const MainGame = new Phaser.Class({
         nature.setFrame( frames[randFrameIndex] );
 
         nature.setOrigin(0.5, 1);
-        nature.y += 32*0.5;
+        nature.y += this.tileHeight*0.5;
 
         // offset nature randomly within its cell
         nature.y -= Math.random()*0.5*nature.displayHeight;
@@ -662,8 +664,8 @@ export const MainGame = new Phaser.Class({
 
       //
       // listen to keypresses
-      //
-      this.input.keyboard.on('keydown_R', this.restartPressed, this);
+      // (R = restart)
+      this.input.keyboard.on('keydown-' + 'R', function (event) { this.restartGame(); });
 
       //
       // finally, determine what to do, depending on if it's a restart or not
@@ -687,10 +689,6 @@ export const MainGame = new Phaser.Class({
         this.scene.pause();
       }
       
-    },
-
-    restartPressed: function() {
-      peerComputer(null, null, { 'type': 'restart-game', 'difficulty': this.difficulty })
     },
 
     createWorkspace() {
@@ -1177,7 +1175,7 @@ export const MainGame = new Phaser.Class({
 
       // building.displayWidth = building.displayHeight = this.tileWidth;
       building.setOrigin(0.5, 1);
-      building.y += 32*0.5;
+      building.y += this.tileHeight*0.5;
       building.setScale(4,4).refreshBody();
 
       // find correct frame based on type
@@ -2510,7 +2508,7 @@ export const MainGame = new Phaser.Class({
         // set backpack above the players
         var targetY = p.y - p.displayHeight - 16;
         var margin = 4;
-        var spriteWidth = 32 + margin;
+        var spriteWidth = this.tileWidth + margin;
         for(var b = 0; b < p.backpackSprites.length; b++) {
           var s = p.backpackSprites[b];
 
@@ -2707,7 +2705,7 @@ export const MainGame = new Phaser.Class({
 
       // scale it up! (both sprite and body)
       // make sure to maintain aspect ratio (11,16)
-      var desiredHeight = 32;
+      var desiredHeight = this.tileHeight;
       var scaleFactor = (desiredHeight/16);
 
       newPlayer.setScale(scaleFactor);
@@ -2791,7 +2789,7 @@ export const MainGame = new Phaser.Class({
         // regular ingredient sprite
         var tempS = newPlayer.backpack.create(i*32, 0, 'ingredients');
 
-        tempS.displayHeight = tempS.displayWidth = 32;
+        tempS.displayHeight = tempS.displayWidth = this.tileWidth;
         tempS.setVisible(false);
 
         newPlayer.backpackSprites.push(tempS);

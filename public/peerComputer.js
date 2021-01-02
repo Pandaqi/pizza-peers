@@ -6,6 +6,7 @@ export function peerComputer(peer, connection, data) {
     if(data.type == 'msg') {
       // add message to the message stream
       document.getElementById('messageStream').innerHTML += "<p>" + data.value + "</p>";
+      return;
     }
 
     //
@@ -20,11 +21,15 @@ export function peerComputer(peer, connection, data) {
       // set difficulty and start the game
       gm.difficulty = data.difficulty;
       gm.startGame();
+
+      return;
     }
 
     if(data.type == 'restart-game') {
       gm.difficulty = data.difficulty;
       gm.restartGame();
+
+      return;
     }
 
     //
@@ -34,11 +39,13 @@ export function peerComputer(peer, connection, data) {
     // player has requested a MOVE
 	if(data.type == 'move') {
 		gm.updatePlayer(peer, data.vec);
+		return;
 	}
 
 	// player has requested to BUY an ingredient
 	if(data.type == 'buy') {
 		gm.buyAction(peer);
+		return;
 	}
 
 	//
@@ -48,11 +55,13 @@ export function peerComputer(peer, connection, data) {
 	// pick up ingredient from table
 	if(data.type == 'table-pickup') {
 		gm.pickupIngredient(peer);
+		return;
 	}
 
 	// drop (given) ingredient on table
 	if(data.type == 'table-drop') {
 		gm.dropIngredient(peer, data.ing);
+		return;
 	} 
 
 	//
@@ -63,11 +72,13 @@ export function peerComputer(peer, connection, data) {
 	// (this message is always received on the COMPUTER side)
 	if(data.type == 'take-order') {
 		gm.takeOrder(peer);
+		return;
 	}
 
 	// player decided to deliver an order
 	if(data.type == 'deliver-order') {
 		gm.deliverOrder(peer);
+		return;
 	}
 
 	//
@@ -77,10 +88,12 @@ export function peerComputer(peer, connection, data) {
 	// player decides to ENTER a vehicle
 	if(data.type == 'enter-vehicle') {
 		gm.enterVehicle(peer);
+		return;
 	}
 
 	// player decides to LEAVE the vehicle
 	if(data.type == 'leave-vehicle') {
 		gm.leaveVehicle(peer);
+		return;
 	}
 }

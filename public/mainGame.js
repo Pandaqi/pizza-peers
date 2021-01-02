@@ -212,8 +212,8 @@ export const MainGame = new Phaser.Class({
       //
       // generate random city
       //
-      this.tileWidth = 48;
-      this.tileHeight = 48;
+      this.tileWidth = 32;
+      this.tileHeight = 32;
       this.gameWidth = this.canvas.width;
       this.gameHeight = this.canvas.height;
 
